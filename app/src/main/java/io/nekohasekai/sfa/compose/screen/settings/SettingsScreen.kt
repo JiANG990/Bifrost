@@ -318,7 +318,7 @@ fun SettingsScreen(navController: NavController) {
                         .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
                         .clickable {
                             val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
-                            intent.data = android.net.Uri.parse("https://github.com/JiANG990/sing-box-for-android#readme")
+                            intent.data = android.net.Uri.parse("https://sing-box.sagernet.org/")
                             context.startActivity(intent)
                         },
                     colors =
