@@ -48,7 +48,8 @@ object SsidModeConfig {
         return when (mode) {
             "direct" -> JSONObject()
                 .put("wifi_ssid", JSONArray().put(ssid))
-                .put("action", "direct")
+                .put("action", "route")
+                .put("outbound", "direct")
 
             "global" -> if (finalTag.isEmpty()) null else JSONObject()
                 .put("wifi_ssid", JSONArray().put(ssid))
