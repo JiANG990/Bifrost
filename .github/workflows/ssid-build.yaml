@@ -1,0 +1,55 @@
+name: Build SFA SSID
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout SFA
+        uses: actions/checkout@v6
+
+      - name: Checkout sing-box
+        uses: actions/checkout@v6
+        with:
+          repository: SagerNet/sing-box
+          ref: v1.15.0-alpha.13
+          path: sing-box
+          fetch-depth: 1
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: false
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: sdkmanager "ndk;28.0.13004108" > /dev/null
+
+      - name: Build libbox AAR
+        working-directory: sing-box
+        run: |
+          go run ./cmd/internal/build_libbox -target android
+          cp libbox.aar libbox-legacy.aar "$GITHUB_WORKSPACE/app/libs/"
+
+      - name: Build APK
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.0.13004108
+        run: ./gradlew --no-daemon assembleOtherRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sfa-ssid
+          path: app/build/outputs/apk/other/release/*.apk
