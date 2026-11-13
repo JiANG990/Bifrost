@@ -126,7 +126,9 @@ jobs:
           set -euo pipefail
           TAG="ssid-$SB_TAG"
           BUNDLE="SFA-${SB_TAG#v}-arm64-v8a.apk"
-          cp app/build/outputs/apk/other/release/*.apk "$BUNDLE"
+          APK=$(find app/build/outputs/apk/other/release -name '*arm64-v8a*.apk' | head -1)
+          [ -n "$APK" ] || APK=$(find app/build/outputs/apk/other/release -name '*.apk' | head -1)
+          cp "$APK" "$BUNDLE"
           printf '{"version_code": %s}\n' "$VERSION_CODE" > SFA-version-metadata.json
           {
             echo "## SFA ${SB_TAG#v} · 按 Wi-Fi 切出站模式"
