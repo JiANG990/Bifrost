@@ -2,21 +2,79 @@ name: Build SFA SSID
 
 on:
   workflow_dispatch:
+    inputs:
+      sb_tag:
+        description: "sing-box tag to build (default: latest upstream release)"
+        required: false
+  schedule:
+    # 04:00 Asia/Shanghai every day: check upstream, build only when it moved
+    - cron: '0 20 * * *'
+
+permissions:
+  contents: write
 
 jobs:
-  build:
+  resolve:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.t.outputs.tag }}
+      code: ${{ steps.t.outputs.code }}
+      skip: ${{ steps.t.outputs.skip }}
+    steps:
+      - name: Resolve sing-box tag
+        id: t
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.sb_tag }}
+        run: |
+          set -euo pipefail
+          TAG="$INPUT_TAG"
+          if [ -z "$TAG" ]; then
+            TAG=$(gh api 'repos/SagerNet/sing-box/releases?per_page=20' \
+              --jq '[.[] | select(.draft == false)][0].tag_name')
+          fi
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "no upstream tag found" >&2
+            exit 1
+          fi
+          if gh release view "ssid-$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "already built $TAG" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "code=$(date +%s)" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "building $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    env:
+      SB_TAG: ${{ needs.resolve.outputs.tag }}
+      VERSION_CODE: ${{ needs.resolve.outputs.code }}
     steps:
       - name: Checkout SFA
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Checkout sing-box
         uses: actions/checkout@v6
         with:
           repository: SagerNet/sing-box
-          ref: v1.15.0-alpha.13
+          ref: ${{ env.SB_TAG }}
           path: sing-box
           fetch-depth: 1
+
+      - name: Pin version
+        run: |
+          cat > version.properties <<EOF
+          VERSION_CODE=$VERSION_CODE
+          VERSION_NAME=${SB_TAG#v}
+          GO_VERSION=go1.26.10
+          EOF
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -56,8 +114,26 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.0.13004108
         run: ./gradlew --no-daemon assembleOtherRelease
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: sfa-ssid
-          path: app/build/outputs/apk/other/release/*.apk
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="ssid-$SB_TAG"
+          BUNDLE="SFA-${SB_TAG#v}-arm64-v8a.apk"
+          cp app/build/outputs/apk/other/release/*.apk "$BUNDLE"
+          printf '{"version_code": %s}\n' "$VERSION_CODE" > SFA-version-metadata.json
+          {
+            echo "## SFA ${SB_TAG#v} · 按 Wi-Fi 切出站模式"
+            echo
+            echo "- 按 SSID 自动切换出站模式（规则 / 全局 / 直连），热生效，不重建 VPN"
+            echo "- 局域网组播与广播不进 tun，飞牛 / mDNS / DLNA 发现正常"
+            echo "- 内置更新跟随本仓库发布，设置里可检查更新"
+            echo
+            echo "安装前请确认已卸载官方版（签名不同）。"
+          } > notes.md
+          gh release create "$TAG" \
+            --title "SFA ${SB_TAG#v} · SSID 增强版" \
+            --notes-file notes.md \
+            --prerelease \
+            "$BUNDLE" SFA-version-metadata.json

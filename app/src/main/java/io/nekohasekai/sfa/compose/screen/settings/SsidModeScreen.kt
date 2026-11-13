@@ -45,6 +45,7 @@ import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.ssid.SsidModeConfig
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,11 +69,16 @@ fun SsidModeScreen(navController: NavController) {
     var ssid by remember { mutableStateOf("") }
     var mode by remember { mutableStateOf("direct") }
     var modeMenu by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf(SsidModeConfig.lastError) }
 
     fun persist() {
         Settings.ssidModeEnabled = enabled
         Settings.ssidModeList = rules.entries.joinToString("\n") { "${it.key}=${it.value}" }
-        reloadIfRunning()
+        error = reloadIfRunning()
+    }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        error = SsidModeConfig.lastError
     }
 
     val scaffoldPadding = LocalScaffoldPadding.current
@@ -193,6 +199,15 @@ fun SsidModeScreen(navController: NavController) {
             }
         }
 
+        if (error != null) {
+            Text(
+                text = stringResource(R.string.ssid_mode_inject_failed) + "：" + error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+            )
+        }
+
         Text(
             text = stringResource(R.string.ssid_mode_saved),
             style = MaterialTheme.typography.bodySmall,
@@ -219,6 +234,7 @@ private fun modeLabel(mode: String): String = when (mode) {
     else -> stringResource(R.string.ssid_mode_rule)
 }
 
-private fun reloadIfRunning() {
+private fun reloadIfRunning(): String? =
     runCatching { Libbox.newStandaloneCommandClient().serviceReload() }
-}
+        .exceptionOrNull()
+        ?.let { it.message ?: it.javaClass.simpleName }
