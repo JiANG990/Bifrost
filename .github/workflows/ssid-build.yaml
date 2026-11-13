@@ -42,6 +42,8 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.0.13004108" > /dev/null
 
       - name: Build libbox AAR
+        env:
+          CGO_LDFLAGS_ALLOW: '-l:.*'
         working-directory: sing-box
         run: |
           go run ./cmd/internal/build_libbox -target android
