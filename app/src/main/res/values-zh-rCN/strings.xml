@@ -672,4 +672,15 @@
     <string name="taildrop_dismiss">关闭</string>
     <string name="taildrop_open_app">打开 sing-box</string>
     <string name="taildrop_notification_title">正在发送文件</string>
+    <string name="ssid_mode_title">按 Wi-Fi 切换出站模式</string>
+    <string name="ssid_mode_enabled">启用</string>
+    <string name="ssid_mode_desc">仅在连接列表中的 Wi-Fi 时覆盖出站模式，其他网络仍按配置本身的规则。</string>
+    <string name="ssid_mode_empty">还没有规则</string>
+    <string name="ssid_mode_add">添加</string>
+    <string name="ssid_mode_ssid">Wi-Fi 名称（SSID）</string>
+    <string name="ssid_mode_delete">删除</string>
+    <string name="ssid_mode_rule">规则</string>
+    <string name="ssid_mode_global">全局</string>
+    <string name="ssid_mode_direct">直连</string>
+    <string name="ssid_mode_saved">已保存，重连 VPN 或切换 Wi-Fi 后生效。</string>
 </resources>

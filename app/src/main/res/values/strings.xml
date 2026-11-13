@@ -743,4 +743,15 @@
     <string name="endpoint_browser_navigation_failed">Browser navigation failed: %1$s</string>
     <string name="endpoint_browser_too_many_windows">The authentication page opened too many browser windows.</string>
     <string name="endpoint_browser_profile_unavailable">Browser authentication is unavailable on this device.</string>
+    <string name="ssid_mode_title">Per-Wi-Fi outbound mode</string>
+    <string name="ssid_mode_enabled">Enable</string>
+    <string name="ssid_mode_desc">Overrides the outbound mode only while connected to the listed Wi-Fi networks. Other networks keep the profile rules.</string>
+    <string name="ssid_mode_empty">No rules yet</string>
+    <string name="ssid_mode_add">Add</string>
+    <string name="ssid_mode_ssid">Wi-Fi name (SSID)</string>
+    <string name="ssid_mode_delete">Delete</string>
+    <string name="ssid_mode_rule">Rule</string>
+    <string name="ssid_mode_global">Global</string>
+    <string name="ssid_mode_direct">Direct</string>
+    <string name="ssid_mode_saved">Saved. Reconnect the VPN or change Wi-Fi to apply.</string>
 </resources>

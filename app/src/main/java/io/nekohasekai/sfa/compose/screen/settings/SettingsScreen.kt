@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SettingsRemote
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -187,6 +188,29 @@ fun SettingsScreen(navController: NavController) {
                     modifier =
                     Modifier
                         .clickable { navController.navigate("settings/profile_override") },
+                    colors =
+                    ListItemDefaults.colors(
+                        containerColor = Color.Transparent,
+                    ),
+                )
+
+                ListItem(
+                    headlineContent = {
+                        Text(
+                            stringResource(R.string.ssid_mode_title),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    },
+                    leadingContent = {
+                        Icon(
+                            imageVector = Icons.Outlined.Wifi,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                    modifier =
+                    Modifier
+                        .clickable { navController.navigate("settings/ssid_mode") },
                     colors =
                     ListItemDefaults.colors(
                         containerColor = Color.Transparent,
