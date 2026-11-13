@@ -23,6 +23,7 @@ object SsidModeConfig {
             val existing = route.optJSONArray("rules") ?: JSONArray()
             val finalTag = route.optString("final", "")
             val generated = JSONArray()
+            generated.put(JSONObject().put("ip_is_private", true).put("action", "direct"))
             for (line in mapping.lineSequence()) {
                 val trimmed = line.trim()
                 val index = trimmed.indexOf('=')
