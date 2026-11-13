@@ -6,6 +6,10 @@ on:
       sb_tag:
         description: "sing-box tag to build (default: latest upstream release)"
         required: false
+      force:
+        description: "rebuild even if the release already exists"
+        type: boolean
+        default: false
   schedule:
     # 04:00 Asia/Shanghai every day: check upstream, build only when it moved
     - cron: '0 20 * * *'
@@ -37,7 +41,7 @@ jobs:
             echo "no upstream tag found" >&2
             exit 1
           fi
-          if gh release view "ssid-$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if [ "${{ inputs.force }}" != "true" ] && gh release view "ssid-$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "already built $TAG" >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -139,6 +143,9 @@ jobs:
             echo
             echo "安装前请确认已卸载官方版（签名不同）。"
           } > notes.md
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
           gh release create "$TAG" \
             --title "SFA ${SB_TAG#v} · SSID 增强版" \
             --notes-file notes.md \
