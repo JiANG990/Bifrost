@@ -108,6 +108,11 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/app/libs"
           cp libbox.aar libbox-legacy.aar "$GITHUB_WORKSPACE/app/libs/"
 
+      - name: Restore keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: printf '%s' "$KEYSTORE_B64" | base64 -d > app/release.keystore
+
       - name: Build APK
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
