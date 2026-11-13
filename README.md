@@ -88,7 +88,18 @@
 gh workflow run ssid-build.yaml -R JiANG990/sing-box-for-android -f sb_tag=v1.15.0-alpha.13
 ```
 
-需要仓库 Secret `LOCAL_PROPERTIES`（base64 编码的签名属性：`KEYSTORE_PASS` / `ALIAS_NAME` / `ALIAS_PASS`）。
+需要两个仓库 Secret（值只存在 GitHub Secrets 里，不会进仓库，也不会出现在 README 或构建产物中）：
+
+- `KEYSTORE_B64`：`release.keystore` 文件的 base64，CI 解码后用；
+- `LOCAL_PROPERTIES`：下面这段文本的 base64：
+
+  ```
+  KEYSTORE_PASS=你的钥匙库密码
+  ALIAS_NAME=你的 key alias
+  ALIAS_PASS=你的 key 密码
+  ```
+
+fork 后需要换成自己的 keystore 和密码；用原作者的签名是签不出可覆盖安装的包的。APK 里能看到的只有公开证书，私钥始终只在你的 keystore 和 GitHub Secret 里。
 
 ## 许可
 
