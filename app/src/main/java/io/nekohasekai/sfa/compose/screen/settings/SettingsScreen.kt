@@ -350,6 +350,7 @@ fun SettingsScreen(navController: NavController) {
                     },
                     modifier =
                     Modifier
+                        .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
                         .clickable {
                             val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
                             intent.data =
@@ -360,8 +361,6 @@ fun SettingsScreen(navController: NavController) {
                     ListItemDefaults.colors(
                         containerColor = Color.Transparent,
                     ),
-                )
-
                 )
             }
         }
