@@ -28,7 +28,6 @@ import io.nekohasekai.sfa.compose.screen.profile.EditProfileRoute
 import io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyScreen
 import io.nekohasekai.sfa.compose.screen.settings.AppSettingsScreen
 import io.nekohasekai.sfa.compose.screen.settings.CoreSettingsScreen
-import io.nekohasekai.sfa.compose.screen.settings.SsidModeScreen
 import io.nekohasekai.sfa.compose.screen.settings.EditRemoteServerScreen
 import io.nekohasekai.sfa.compose.screen.settings.FDroidMirrorScreen
 import io.nekohasekai.sfa.compose.screen.settings.PrivilegeSettingsScreen
@@ -630,16 +629,6 @@ fun NavHost(
             popExitTransition = slideOutToRight,
         ) {
             FDroidMirrorScreen(navController = navController)
-        }
-
-        composable(
-            route = "settings/ssid_mode",
-            enterTransition = slideInFromRight,
-            exitTransition = slideOutToLeft,
-            popEnterTransition = slideInFromLeft,
-            popExitTransition = slideOutToRight,
-        ) {
-            SsidModeScreen(navController = navController)
         }
 
         composable(

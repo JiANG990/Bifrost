@@ -34,7 +34,6 @@ import io.nekohasekai.sfa.constant.Alert
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
-import io.nekohasekai.sfa.ssid.SsidModeConfig
 import io.nekohasekai.sfa.ktx.hasPermission
 import io.nekohasekai.sfa.vendor.Vendor
 import kotlinx.coroutines.CoroutineScope
@@ -136,7 +135,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 return
             }
 
-            val content = SsidModeConfig.wrap(File(profile.typed.path).readText())
+            val content = File(profile.typed.path).readText()
             if (content.isBlank()) {
                 stopAndAlert(Alert.EmptyConfiguration)
                 return
@@ -225,7 +224,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return
         }
 
-        val content = SsidModeConfig.wrap(File(profile.typed.path).readText())
+        val content = File(profile.typed.path).readText()
         if (content.isBlank()) {
             stopAndAlert(Alert.EmptyConfiguration)
             return
