@@ -65,6 +65,7 @@ fun SsidModeScreen(navController: NavController) {
     }
 
     var enabled by remember { mutableStateOf(Settings.ssidModeEnabled) }
+    var dnsEnabled by remember { mutableStateOf(Settings.ssidModeDnsEnabled) }
     var rules by remember { mutableStateOf(parseRules(Settings.ssidModeList)) }
     var ssid by remember { mutableStateOf("") }
     var mode by remember { mutableStateOf("direct") }
@@ -73,6 +74,7 @@ fun SsidModeScreen(navController: NavController) {
 
     fun persist() {
         Settings.ssidModeEnabled = enabled
+        Settings.ssidModeDnsEnabled = dnsEnabled
         Settings.ssidModeList = rules.entries.joinToString("\n") { "${it.key}=${it.value}" }
         error = reloadIfRunning()
     }
@@ -107,6 +109,28 @@ fun SsidModeScreen(navController: NavController) {
                         checked = enabled,
                         onCheckedChange = {
                             enabled = it
+                            persist()
+                        },
+                    )
+                },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            )
+        }
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        ) {
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.ssid_mode_dns_enabled)) },
+                supportingContent = { Text(stringResource(R.string.ssid_mode_dns_desc)) },
+                trailingContent = {
+                    Switch(
+                        checked = dnsEnabled,
+                        onCheckedChange = {
+                            dnsEnabled = it
                             persist()
                         },
                     )

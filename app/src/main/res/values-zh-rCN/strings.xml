@@ -734,6 +734,8 @@
     <string name="taildrop_notification_title">正在发送文件</string>
     <string name="ssid_mode_title">按 Wi-Fi 切换出站模式</string>
     <string name="ssid_mode_enabled">启用</string>
+    <string name="ssid_mode_dns_enabled">自动切换网关为 DNS</string>
+    <string name="ssid_mode_dns_desc">在直连 Wi-Fi 下把全部 DNS 查询发给当前网络网关，因为网关本身也做 DNS 分流。</string>
     <string name="ssid_mode_desc">仅在连接列表中的 Wi-Fi 时覆盖出站模式，其他网络仍按配置本身的规则。</string>
     <string name="ssid_mode_empty">还没有规则</string>
     <string name="ssid_mode_add">添加</string>

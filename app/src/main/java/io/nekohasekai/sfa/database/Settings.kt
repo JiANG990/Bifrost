@@ -100,6 +100,7 @@ object Settings {
     var allowBypass by dataStore.boolean(SettingsKey.ALLOW_BYPASS) { false }
     var ssidModeEnabled by dataStore.boolean(SettingsKey.SSID_MODE_ENABLED) { false }
     var ssidModeList by dataStore.string(SettingsKey.SSID_MODE_LIST) { "" }
+    var ssidModeDnsEnabled by dataStore.boolean(SettingsKey.SSID_MODE_DNS_ENABLED) { true }
     var systemProxyEnabled by dataStore.boolean(SettingsKey.SYSTEM_PROXY_ENABLED) { true }
 
     var privilegeSettingsEnabled by dataStore.boolean(SettingsKey.PRIVILEGE_SETTINGS_ENABLED) { false }

@@ -1,14 +1,25 @@
 package io.nekohasekai.sfa.ssid
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.util.Log
 import io.nekohasekai.sfa.database.Settings
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.Inet4Address
 
 /**
  * Injects Wi-Fi SSID based routing rules into the sing-box config before it is
  * handed to the core. Rules only touch the "route.rules" head, so the profile
  * file on disk stays untouched and the user's own rules keep working.
+ *
+ * When a listed SSID is set to "direct", the whole traffic of that Wi-Fi goes
+ * straight out. The gateway on those networks usually also runs DNS based
+ * splitting, so the DNS section is pointed at the current Wi-Fi gateway as
+ * well; otherwise the device would resolve names through its own DoH and
+ * bypass the gateway's answers.
  */
 object SsidModeConfig {
     private const val TAG = "SsidMode"
@@ -17,7 +28,7 @@ object SsidModeConfig {
     var lastError: String? = null
         private set
 
-    fun wrap(content: String): String {
+    fun wrap(content: String, context: Context? = null): String {
         if (!Settings.ssidModeEnabled) return content
         val mapping = Settings.ssidModeList
         if (mapping.isBlank()) return content
@@ -28,13 +39,17 @@ object SsidModeConfig {
             val existing = route.optJSONArray("rules") ?: JSONArray()
             val finalTag = route.optString("final", "")
             val generated = JSONArray()
+            val directSsids = ArrayList<String>()
             for (line in mapping.lineSequence()) {
                 val trimmed = line.trim()
                 val index = trimmed.indexOf('=')
                 if (index <= 0) continue
                 val ssid = trimmed.substring(0, index).trim()
                 val mode = trimmed.substring(index + 1).trim().lowercase()
-                rule(ssid, mode, finalTag)?.let { generated.put(it) }
+                rule(ssid, mode, finalTag)?.let {
+                    generated.put(it)
+                    if (mode == "direct") directSsids.add(ssid)
+                }
             }
             if (generated.length() == 0) {
                 lastError = "no usable SSID rule (mode must be direct or global with route.final set)"
@@ -44,12 +59,88 @@ object SsidModeConfig {
             for (i in 0 until generated.length()) merged.put(generated.get(i))
             for (i in 0 until existing.length()) merged.put(existing.get(i))
             route.put("rules", merged)
+            if (directSsids.isNotEmpty() && Settings.ssidModeDnsEnabled) {
+                applyLanDns(root, context)
+            }
             root.toString()
         } catch (e: Throwable) {
             lastError = e.message ?: e.javaClass.simpleName
             Log.w(TAG, "leave config untouched: ${e.message}")
             content
         }
+    }
+
+    /** Points dns.final at the gateway of the connected Wi-Fi network. */
+    private fun applyLanDns(root: JSONObject, context: Context?) {
+        val gateway = currentGateway(context)
+        if (gateway == null) {
+            lastError = "auto DNS failed: no Wi-Fi gateway found"
+            return
+        }
+        val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
+        val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
+        var tag: String? = null
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            if (server.optString("type") != "udp") continue
+            server.put("server", gateway)
+            server.put("server_port", 53)
+            tag = server.optString("tag")
+            break
+        }
+        if (tag.isNullOrEmpty()) {
+            tag = "lan-gateway"
+            servers.put(
+                JSONObject()
+                    .put("type", "udp")
+                    .put("tag", tag)
+                    .put("server", gateway)
+                    .put("server_port", 53)
+                    .put("detour", "direct"),
+            )
+        }
+        dns.put("final", tag)
+        dns.put("strategy", "ipv4_only")
+        Log.i(TAG, "dns.final -> $gateway ($tag)")
+    }
+
+    /**
+     * Reads the default gateway of the Wi-Fi network. activeNetwork cannot be
+     * used here: while the VPN runs it is the tun interface and has no gateway.
+     */
+    private fun currentGateway(context: Context?): String? {
+        val ctx = context ?: return null
+        try {
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            if (cm != null) {
+                for (network in cm.allNetworks) {
+                    val caps = cm.getNetworkCapabilities(network) ?: continue
+                    if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
+                    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+                    val lp = cm.getLinkProperties(network) ?: continue
+                    for (route in lp.routes) {
+                        if (route.isDefaultRoute && route.gateway is Inet4Address) {
+                            return route.gateway.hostAddress
+                        }
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "gateway lookup failed: ${e.message}")
+        }
+        try {
+            val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            if (wm != null) {
+                @Suppress("DEPRECATION")
+                val ip = wm.dhcpInfo.gateway
+                if (ip != 0) {
+                    return "${ip and 0xff}.${(ip shr 8) and 0xff}.${(ip shr 16) and 0xff}.${(ip shr 24) and 0xff}"
+                }
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "dhcp gateway fallback failed: ${e.message}")
+        }
+        return null
     }
 
     /**

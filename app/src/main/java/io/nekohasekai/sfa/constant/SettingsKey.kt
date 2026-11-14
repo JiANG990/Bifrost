@@ -27,6 +27,7 @@ object SettingsKey {
     const val ALLOW_BYPASS = "allow_bypass"
     const val SSID_MODE_ENABLED = "ssid_mode_enabled"
     const val SSID_MODE_LIST = "ssid_mode_list"
+    const val SSID_MODE_DNS_ENABLED = "ssid_mode_dns_enabled"
     const val SYSTEM_PROXY_ENABLED = "system_proxy_enabled"
 
     const val PRIVILEGE_SETTINGS_ENABLED = "hide_settings_enabled"

@@ -136,7 +136,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 return
             }
 
-            val content = SsidModeConfig.wrap(File(profile.typed.path).readText())
+            val content = SsidModeConfig.wrap(File(profile.typed.path).readText(), service)
             if (content.isBlank()) {
                 stopAndAlert(Alert.EmptyConfiguration)
                 return
@@ -225,7 +225,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return
         }
 
-        val content = SsidModeConfig.wrap(File(profile.typed.path).readText())
+        val content = SsidModeConfig.wrap(File(profile.typed.path).readText(), service)
         if (content.isBlank()) {
             stopAndAlert(Alert.EmptyConfiguration)
             return
