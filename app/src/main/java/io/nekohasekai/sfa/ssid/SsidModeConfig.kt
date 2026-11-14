@@ -119,8 +119,9 @@ object SsidModeConfig {
                     if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
                     val lp = cm.getLinkProperties(network) ?: continue
                     for (route in lp.routes) {
-                        if (route.isDefaultRoute && route.gateway is Inet4Address) {
-                            return route.gateway.hostAddress
+                        val gateway = route.gateway
+                        if (route.isDefaultRoute && gateway is Inet4Address) {
+                            return gateway.hostAddress
                         }
                     }
                 }
