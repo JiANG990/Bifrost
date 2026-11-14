@@ -14,7 +14,7 @@ import java.io.Closeable
 
 class GitHubUpdateChecker : Closeable {
     companion object {
-        private const val RELEASES_URL = "https://api.github.com/repos/SagerNet/sing-box/releases"
+        private const val RELEASES_URL = "https://api.github.com/repos/JiANG990/sing-box-for-android/releases"
         private const val METADATA_FILENAME = "SFA-version-metadata.json"
     }
 
@@ -27,12 +27,7 @@ class GitHubUpdateChecker : Closeable {
 
     fun checkUpdate(track: UpdateTrack, githubToken: String): UpdateInfo? {
         val request = client.newRequest()
-        request.setURL(
-            when (track) {
-                UpdateTrack.STABLE -> "$RELEASES_URL/latest"
-                UpdateTrack.BETA -> "$RELEASES_URL?per_page=3"
-            },
-        )
+        request.setURL("$RELEASES_URL?per_page=${if (track == UpdateTrack.STABLE) 10 else 20}")
         request.setHeader("Accept", "application/vnd.github+json")
         val token = githubToken.trim()
         if (token.isNotEmpty()) {
@@ -40,17 +35,14 @@ class GitHubUpdateChecker : Closeable {
         }
         request.setUserAgent(HTTPClient.userAgent)
         val content = request.execute().content.unwrap
-        val releases = when (track) {
-            UpdateTrack.STABLE -> listOf(json.decodeFromString<GitHubRelease>(content))
-            UpdateTrack.BETA -> json.decodeFromString<List<GitHubRelease>>(content)
-        }
+        val releases = json.decodeFromString<List<GitHubRelease>>(content)
         val release = releases.filter { !it.draft }.reduceOrNull { best, candidate ->
             if (Libbox.compareSemver(candidate.version, best.version)) candidate else best
         } ?: return null
-        if (!Libbox.compareSemver(release.version, BuildConfig.VERSION_NAME)) {
+        val metadata = downloadMetadata(release) ?: return null
+        if (metadata.versionCode <= BuildConfig.VERSION_CODE) {
             return null
         }
-        val metadata = downloadMetadata(release) ?: return null
 
         val isLegacy = Build.VERSION.SDK_INT < Build.VERSION_CODES.M
         val apkAsset = release.assets.find { asset ->
@@ -98,7 +90,7 @@ class GitHubUpdateChecker : Closeable {
         @SerialName("html_url") val htmlUrl: String = "",
         val assets: List<GitHubAsset> = emptyList(),
     ) {
-        val version: String get() = tagName.removePrefix("v")
+        val version: String get() = tagName.removePrefix("ssid-").removePrefix("v")
     }
 
     @Serializable
