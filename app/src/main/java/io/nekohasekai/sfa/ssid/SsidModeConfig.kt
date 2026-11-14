@@ -9,6 +9,7 @@ import io.nekohasekai.sfa.database.Settings
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.Inet4Address
+import java.net.Inet6Address
 
 /**
  * Injects Wi-Fi SSID based routing rules into the sing-box config before it is
@@ -72,7 +73,8 @@ object SsidModeConfig {
 
     /** Points dns.final at the gateway of the connected Wi-Fi network. */
     private fun applyLanDns(root: JSONObject, context: Context?) {
-        val gateway = currentGateway(context)
+        val gateways = currentGateways(context)
+        val gateway = gateways.first
         if (gateway == null) {
             lastError = "auto DNS failed: no Wi-Fi gateway found"
             return
@@ -99,17 +101,35 @@ object SsidModeConfig {
                     .put("detour", "direct"),
             )
         }
+        val gateway6 = gateways.second
+        if (!gateway6.isNullOrEmpty()) {
+            val tag6 = "lan-gateway6"
+            servers.put(
+                JSONObject()
+                    .put("type", "udp")
+                    .put("tag", tag6)
+                    .put("server", gateway6)
+                    .put("server_port", 53)
+                    .put("detour", "direct"),
+            )
+            val rules = dns.optJSONArray("rules") ?: JSONArray()
+            val merged = JSONArray()
+            merged.put(JSONObject().put("query_type", JSONArray().put("A")).put("server", tag))
+            merged.put(JSONObject().put("query_type", JSONArray().put("AAAA")).put("server", tag6))
+            for (i in 0 until rules.length()) merged.put(rules.get(i))
+            dns.put("rules", merged)
+        }
         dns.put("final", tag)
-        dns.put("strategy", "ipv4_only")
-        Log.i(TAG, "dns.final -> $gateway ($tag)")
+        dns.put("strategy", "prefer_ipv4")
+        Log.i(TAG, "dns.final -> $gateway/$gateway6 ($tag)")
     }
 
     /**
      * Reads the default gateway of the Wi-Fi network. activeNetwork cannot be
      * used here: while the VPN runs it is the tun interface and has no gateway.
      */
-    private fun currentGateway(context: Context?): String? {
-        val ctx = context ?: return null
+    private fun currentGateways(context: Context?): Pair<String?, String?> {
+        val ctx = context ?: return null to null
         try {
             val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             if (cm != null) {
@@ -118,12 +138,23 @@ object SsidModeConfig {
                     if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
                     if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
                     val lp = cm.getLinkProperties(network) ?: continue
-                    for (route in lp.routes) {
-                        val gateway = route.gateway
-                        if (route.isDefaultRoute && gateway is Inet4Address) {
-                            return gateway.hostAddress
+                    var v4: String? = null
+                    var v6: String? = null
+                    for (address in lp.dnsServers) {
+                        if (address is Inet6Address && !address.isLinkLocalAddress && v6 == null) {
+                            v6 = address.hostAddress?.substringBefore('%')
                         }
                     }
+                    for (route in lp.routes) {
+                        if (!route.isDefaultRoute) continue
+                        val gateway = route.gateway ?: continue
+                        if (gateway is Inet4Address) {
+                            if (v4 == null) v4 = gateway.hostAddress
+                        } else if (gateway is Inet6Address) {
+                            if (v6 == null && !gateway.isLinkLocalAddress) v6 = gateway.hostAddress?.substringBefore('%')
+                        }
+                    }
+                    if (v4 != null || v6 != null) return v4 to v6
                 }
             }
         } catch (e: Throwable) {
@@ -135,13 +166,13 @@ object SsidModeConfig {
                 @Suppress("DEPRECATION")
                 val ip = wm.dhcpInfo.gateway
                 if (ip != 0) {
-                    return "${ip and 0xff}.${(ip shr 8) and 0xff}.${(ip shr 16) and 0xff}.${(ip shr 24) and 0xff}"
+                    return "${ip and 0xff}.${(ip shr 8) and 0xff}.${(ip shr 16) and 0xff}.${(ip shr 24) and 0xff}" to null
                 }
             }
         } catch (e: Throwable) {
             Log.w(TAG, "dhcp gateway fallback failed: ${e.message}")
         }
-        return null
+        return null to null
     }
 
     /**
