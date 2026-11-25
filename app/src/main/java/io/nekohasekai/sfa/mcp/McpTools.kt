@@ -66,8 +66,9 @@ object McpTools {
     }
 
     private fun failure(id: Any?, message: String): String {
+        val payload = JSONObject().put("error", message)
         val body = JSONObject()
-            .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", message)))
+            .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", payload.toString())))
             .put("isError", true)
         return result(id, body)
     }
@@ -89,6 +90,7 @@ object McpTools {
         "logs" -> logs(args)
         "profiles" -> profiles()
         "get_profile" -> getProfile(args)
+        "runtime_config" -> runtimeConfig(args)
         "select_outbound" -> selectOutbound(args)
         "close_connection" -> closeConnection(args)
         "close_all_connections" -> closeAllConnections()
@@ -203,6 +205,17 @@ object McpTools {
             )
         }
         return JSONObject().put("selected", selected).put("count", items.length()).put("items", items)
+    }
+
+    private fun runtimeConfig(args: JSONObject): JSONObject {
+        val maxChars = args.optInt("maxChars", 20_000).coerceIn(1000, 200_000)
+        val content = McpState.runtimeConfig ?: ""
+        return JSONObject()
+            .put("available", content.isNotEmpty())
+            .put("error", McpState.runtimeConfigError ?: JSONObject.NULL)
+            .put("size", content.length)
+            .put("truncated", content.length > maxChars)
+            .put("content", content.take(maxChars))
     }
 
     private fun getProfile(args: JSONObject): JSONObject {
@@ -361,6 +374,13 @@ object McpTools {
                 schema("id")
                     .let { param(it, "id", "integer", "Profile id from the profiles tool.") }
                     .let { param(it, "maxChars", "integer", "Maximum characters to return.", 20000) },
+            ),
+        )
+        .put(
+            tool(
+                "runtime_config",
+                "The config actually handed to the core, including SSID and gateway DNS injection.",
+                schema().let { param(it, "maxChars", "integer", "Maximum characters to return.", 20000) },
             ),
         )
         .put(

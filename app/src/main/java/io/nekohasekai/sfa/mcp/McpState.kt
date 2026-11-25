@@ -29,6 +29,20 @@ object McpState : CommandClient.Handler {
 
     private const val MAX_LOGS = 500
 
+    /** Config actually handed to the core, including the SSID/DNS injection. */
+    @Volatile
+    var runtimeConfig: String? = null
+        private set
+
+    @Volatile
+    var runtimeConfigError: String? = null
+        private set
+
+    fun setRuntimeConfig(config: String, error: String?) {
+        runtimeConfig = config
+        runtimeConfigError = error
+    }
+
     @Volatile
     var status: StatusMessage? = null
         private set
