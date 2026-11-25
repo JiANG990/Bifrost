@@ -87,6 +87,7 @@ object SsidModeConfig {
             if (server.optString("type") != "udp") continue
             server.put("server", gateway)
             server.put("server_port", 53)
+            server.put("detour", "direct")
             tag = server.optString("tag")
             break
         }
