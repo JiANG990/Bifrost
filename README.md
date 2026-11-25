@@ -21,6 +21,7 @@
 - **原生 sing-box 能力**：WireGuard、Tailscale 都是一等 endpoint，配置与官方完全兼容。
 - **前台服务常驻**：VPN 运行期间由系统前台服务托管，后台不被冻结，按需运行由客户端自己判断。
 - **跟随上游**：每天检查 sing-box 新版本，自动编译并发布；App 内置更新指向本仓库。
+- **MCP 控制接口**：内置一个只监听 `127.0.0.1` 的 MCP 服务器，AI 客户端可以读运行状态、连接、日志、配置，也能切换节点、关闭连接、切换配置。
 
 ## 安装
 
@@ -73,12 +74,54 @@
 | 局域网组播直通 | 需手动排除路由 | ✅ 默认排除 |
 | 更新来源 | SagerNet/sing-box | 本仓库 Releases |
 | 签名 | 官方 | 独立（不兼容） |
+| MCP 控制接口 | — | ✅ 见下文 |
 
 代码改动集中在：
 
 - `app/src/main/java/io/nekohasekai/sfa/ssid/SsidModeConfig.kt` — 把 SSID 规则注入 `route.rules` 头部，兼容注释 / 尾逗号；
 - `app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/SsidModeScreen.kt` — 规则编辑页；
 - `app/src/github/java/io/nekohasekai/sfa/vendor/GitHubUpdateChecker.kt` — 内置更新指向本仓库。
+- `app/src/main/java/io/nekohasekai/sfa/mcp/` — MCP 服务器、状态缓存与工具实现。
+
+## MCP 服务器
+
+入口：**设置 → 应用 → MCP 服务器**。打开开关后，App 在 `127.0.0.1:18080`（端口可改）上提供 JSON-RPC 2.0 端点，供本机的 AI 客户端接入。
+
+- 只绑定回环地址，局域网和外部设备连不上；
+- 设置里可填访问令牌，填了就要求 `Authorization: Bearer <token>`，留空则不校验；
+- 协议为 MCP `2024-11-05`，传输层是简化的 Streamable HTTP：只处理 `POST`（`/mcp` 或 `/`），不提供 SSE 流；`/health` 返回存活与版本。
+
+可用的工具：
+
+| 工具 | 作用 |
+|---|---|
+| `status` | 连接状态、核心版本、实时上下行、clash 模式、当前配置 |
+| `outbounds` | 所有出站组与成员、最近一次测速延迟 |
+| `connections` | 活动连接（目标、命中规则、出站链） |
+| `logs` | 最近的核心日志（可按级别过滤） |
+| `profiles` / `get_profile` | 配置列表 / 读取某个配置的 JSON |
+| `select_outbound` | 在组内切换节点 |
+| `close_connection` / `close_all_connections` | 关闭连接 |
+| `set_clash_mode` | 切换 rule / global / direct |
+| `url_test` | 触发测速 |
+| `service` | 启动、停止、重启内核 |
+| `set_profile` | 切换当前配置（之后需重启服务生效） |
+
+客户端配置示例（以支持 HTTP 传输的客户端为例）：
+
+```json
+{
+  "mcpServers": {
+    "sfa": {
+      "type": "http",
+      "url": "http://127.0.0.1:18080/mcp",
+      "headers": { "Authorization": "Bearer 你的令牌" }
+    }
+  }
+}
+```
+
+注意：MCP 服务器运行在手机 App 进程内，客户端必须跑在同一台设备上（或通过 `adb forward tcp:18080 tcp:18080` 转发）。
 
 ## 构建
 
