@@ -370,6 +370,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
             private fun onChange() {
                 val key = physicalNetworkKey()
+                Log.i(TAG, "network change: '$lastKey' -> '$key'")
                 if (key.isEmpty() || key == lastKey) return
                 lastKey = key
                 if (scheduled) return
