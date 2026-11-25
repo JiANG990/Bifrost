@@ -15,7 +15,7 @@ import java.io.Closeable
 class GitHubUpdateChecker : Closeable {
     companion object {
         private const val RELEASES_URL = "https://api.github.com/repos/JiANG990/Bifrost/releases"
-        private const val METADATA_FILENAME = "SFA-version-metadata.json"
+        private const val METADATA_FILENAME = "Bifrost-version-metadata.json"
     }
 
     private val client = Libbox.newHTTPClient().apply {
