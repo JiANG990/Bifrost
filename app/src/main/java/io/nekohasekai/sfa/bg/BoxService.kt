@@ -313,6 +313,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     @OptIn(DelicateCoroutinesApi::class)
+    private var ssidCache = ""
+
     /**
      * Reloads once the physical network changes, because the SSID rule and the gateway
      * DNS only make sense on the network they were generated for. The VPN interface is
@@ -327,7 +329,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 val caps = cm.getNetworkCapabilities(network) ?: continue
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
                 when {
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> parts.add("wifi|" + currentSsid())
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
+                        // Reading the SSID can fail while the Wi-Fi is settling, so keep the
+                        // last known name instead of flapping between "1602" and "".
+                        val ssid = currentSsid()
+                        if (ssid.isNotEmpty()) ssidCache = ssid
+                        parts.add("wifi|" + ssidCache)
+                    }
                     caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> parts.add("cell")
                     caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> parts.add("eth")
                 }
@@ -361,20 +369,23 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
             private fun onChange() {
                 val key = physicalNetworkKey()
-                if (key == lastKey) return
+                if (key.isEmpty() || key == lastKey) return
                 lastKey = key
                 if (scheduled) return
                 scheduled = true
                 GlobalScope.launch(Dispatchers.IO) {
                     delay(NETWORK_RELOAD_DELAY)
                     scheduled = false
+                    // The network often flaps a few times while it settles. Reload only when
+                    // the key still matches the one that triggered this pass, otherwise the
+                    // next callback handles it.
+                    if (physicalNetworkKey() != key) return@launch
                     runCatching { serviceReload0() }
                 }
             }
 
             override fun onAvailable(network: Network) = onChange()
             override fun onLost(network: Network) = onChange()
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = onChange()
         }
         runCatching { cm.registerNetworkCallback(request, callback) }
             .onSuccess { networkReloadCallback = callback }
