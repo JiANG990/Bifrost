@@ -33,7 +33,8 @@ object ApkInstaller {
     }
 
     fun getConfiguredMethod(): InstallMethod {
-        if (HookStatusClient.status.value?.active == true ||
+        if (RootClient.rootAvailable.value == true ||
+            HookStatusClient.status.value?.active == true ||
             XposedActivation.isActivated(Application.application)
         ) {
             return InstallMethod.ROOT
@@ -45,7 +46,14 @@ object ApkInstaller {
         }
     }
 
-    suspend fun install(context: Context, apkFile: File, method: InstallMethod = getConfiguredMethod()) {
+    suspend fun resolveMethod(): InstallMethod {
+        if (RootClient.rootAvailable.value == null) {
+            runCatching { RootClient.checkRootAvailable() }
+        }
+        return getConfiguredMethod()
+    }
+
+    suspend fun install(context: Context, apkFile: File, method: InstallMethod = resolveMethod()) {
         stopServiceIfRunning()
         when (method) {
             InstallMethod.SHIZUKU -> ShizukuInstaller.install(apkFile)
@@ -57,7 +65,7 @@ object ApkInstaller {
     fun canSystemSilentInstall(): Boolean = SystemPackageInstaller.canSystemSilentInstall()
 
     suspend fun canSilentInstall(): Boolean {
-        val method = getConfiguredMethod()
+        val method = resolveMethod()
         return when (method) {
             InstallMethod.PACKAGE_INSTALLER -> canSystemSilentInstall()
             InstallMethod.SHIZUKU -> ShizukuInstaller.isAvailable() && ShizukuInstaller.checkPermission()

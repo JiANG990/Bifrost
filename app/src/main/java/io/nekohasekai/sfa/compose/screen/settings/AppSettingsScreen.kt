@@ -805,12 +805,6 @@ fun AppSettingsScreen(
                 val updateItemCount =
                     run {
                         var count = 0
-                        if (Vendor.updateSources.size > 1) {
-                            count += 1
-                        }
-                        if (Vendor.hasCustomUpdate) {
-                            count += 1
-                        }
                         if (Vendor.hasCustomUpdate && !isFDroid) {
                             count += 1
                         }
@@ -848,74 +842,7 @@ fun AppSettingsScreen(
                     }
                 }
 
-                if (Vendor.updateSources.size > 1) {
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                stringResource(R.string.update_source),
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                        },
-                        supportingContent = {
-                            val sourceName = when (UpdateSource.fromString(currentSource)) {
-                                UpdateSource.GITHUB -> stringResource(R.string.update_source_github)
-                                UpdateSource.FDROID -> stringResource(R.string.update_source_fdroid)
-                            }
-                            Text(sourceName, style = MaterialTheme.typography.bodyMedium)
-                        },
-                        leadingContent = {
-                            Icon(
-                                imageVector = Icons.Outlined.NewReleases,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
-                        modifier =
-                        updateItemModifier()
-                            .clickable { showSourceDialog = true },
-                        colors =
-                        ListItemDefaults.colors(
-                            containerColor = Color.Transparent,
-                        ),
-                    )
-                }
 
-                if (Vendor.hasCustomUpdate) {
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                stringResource(R.string.update_track),
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                        },
-                        supportingContent = {
-                            val trackName = if (isFDroid) {
-                                stringResource(R.string.update_track_stable)
-                            } else {
-                                when (UpdateTrack.fromString(currentTrack)) {
-                                    UpdateTrack.STABLE -> stringResource(R.string.update_track_stable)
-                                    UpdateTrack.BETA -> stringResource(R.string.update_track_beta)
-                                }
-                            }
-                            Text(trackName, style = MaterialTheme.typography.bodyMedium)
-                        },
-                        leadingContent = {
-                            Icon(
-                                imageVector = Icons.Outlined.NewReleases,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
-                        modifier =
-                        updateItemModifier().let {
-                            if (isFDroid) it.alpha(0.38f) else it.clickable { showTrackDialog = true }
-                        },
-                        colors =
-                        ListItemDefaults.colors(
-                            containerColor = Color.Transparent,
-                        ),
-                    )
-                }
 
                 if (Vendor.hasCustomUpdate && !isFDroid) {
                     ListItem(
