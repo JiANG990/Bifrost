@@ -47,6 +47,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -56,6 +57,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     companion object {
         private const val PROFILE_UPDATE_INTERVAL = 15L * 60 * 1000 // 15 minutes in milliseconds
         private const val TAG = "BoxService"
+        private const val NETWORK_RELOAD_DELAY = 1_500L
 
         @OptIn(DelicateCoroutinesApi::class)
         fun start() = GlobalScope.launch(Dispatchers.Main.immediate) {
@@ -163,6 +165,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
 
             DefaultNetworkMonitor.start()
+            registerNetworkReload()
 
             try {
                 commandServer.startOrReloadService(
@@ -237,6 +240,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     private val reloadMutex = Mutex()
 
+    private var networkReloadCallback: ConnectivityManager.NetworkCallback? = null
+
     suspend fun serviceReload0() = reloadMutex.withLock {
         // A reload while the core is tearing down would resurrect it or throw from
         // the Go callback thread, so bail out instead of racing the state machine.
@@ -304,6 +309,49 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     @OptIn(DelicateCoroutinesApi::class)
+    /**
+     * Reloads once the physical network changes, because the SSID rule and the gateway
+     * DNS only make sense on the network they were generated for. The VPN interface is
+     * excluded by the request so our own tun does not trigger it.
+     */
+    private fun registerNetworkReload() {
+        if (networkReloadCallback != null) return
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+            .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+            .build()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            private var scheduled = false
+
+            private fun schedule() {
+                if (scheduled) return
+                scheduled = true
+                GlobalScope.launch(Dispatchers.IO) {
+                    delay(NETWORK_RELOAD_DELAY)
+                    scheduled = false
+                    runCatching { serviceReload0() }
+                }
+            }
+
+            override fun onAvailable(network: Network) = schedule()
+            override fun onLost(network: Network) = schedule()
+        }
+        runCatching { cm.registerNetworkCallback(request, callback) }
+            .onSuccess { networkReloadCallback = callback }
+            .onFailure { Log.w(TAG, "network callback failed: ${it.message}") }
+    }
+
+    private fun unregisterNetworkReload() {
+        val callback = networkReloadCallback ?: return
+        networkReloadCallback = null
+        runCatching {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
+                ?.unregisterNetworkCallback(callback)
+        }
+    }
+
     private fun stopService() {
         if (status.value == Status.Starting) {
             // The start coroutine is still bringing the core up: remember the request
@@ -326,6 +374,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 fileDescriptor = null
             }
             DefaultNetworkMonitor.stop()
+        unregisterNetworkReload()
             closeService()
             commandServer.apply {
                 close()
@@ -421,6 +470,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         instance = null
         idleModeUpdates.cancel()
         idleModeScope.cancel()
+        unregisterNetworkReload()
         GlobalScope.launch(Dispatchers.IO) { runCatching { DefaultNetworkMonitor.stop() } }
         runCatching { if (::commandServer.isInitialized) commandServer.close() }
         binder.close()
