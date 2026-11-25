@@ -144,10 +144,19 @@ object Vendor : VendorInterface {
             ApkDownloader().use { it.download(downloadUrl) }
         }
         val wasRunning = File(Application.application.filesDir, "command.sock").exists()
-        ApkInstaller.install(context, apkFile)
-        // install() stops the core; without this the VPN stays off after an update.
-        if (wasRunning) {
-            BoxService.start()
+        try {
+            ApkInstaller.install(context, apkFile)
+            UpdateState.setInstallStatus(UpdateState.InstallStatus.Success)
+        } catch (e: Exception) {
+            UpdateState.setInstallStatus(
+                UpdateState.InstallStatus.Failed(e.message ?: e.javaClass.simpleName),
+            )
+            throw e
+        } finally {
+            // install() stops the core; without this the VPN stays off after an update.
+            if (wasRunning) {
+                runCatching { BoxService.start() }
+            }
         }
     }
 }

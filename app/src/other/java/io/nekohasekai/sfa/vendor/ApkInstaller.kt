@@ -33,17 +33,18 @@ object ApkInstaller {
     }
 
     fun getConfiguredMethod(): InstallMethod {
-        if (RootClient.rootAvailable.value == true ||
-            HookStatusClient.status.value?.active == true ||
+        // Silent installation is opt-in only. Root being available is not a reason to
+        // bypass the system installer: a failed root install produces no UI at all.
+        if (!Settings.silentInstallEnabled) {
+            return InstallMethod.PACKAGE_INSTALLER
+        }
+        if (HookStatusClient.status.value?.active == true ||
             XposedActivation.isActivated(Application.application)
         ) {
             return InstallMethod.ROOT
         }
-        return if (Settings.silentInstallEnabled) {
-            InstallMethod.valueOf(Settings.silentInstallMethod)
-        } else {
-            InstallMethod.PACKAGE_INSTALLER
-        }
+        return runCatching { InstallMethod.valueOf(Settings.silentInstallMethod) }
+            .getOrDefault(InstallMethod.PACKAGE_INSTALLER)
     }
 
     suspend fun resolveMethod(): InstallMethod {
