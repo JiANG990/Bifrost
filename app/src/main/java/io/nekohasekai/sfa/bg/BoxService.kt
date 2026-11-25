@@ -401,10 +401,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     internal fun onBind(): IBinder = binder
 
+    @OptIn(DelicateCoroutinesApi::class)
     internal fun onDestroy() {
         idleModeUpdates.cancel()
         idleModeScope.cancel()
-        runCatching { DefaultNetworkMonitor.stop() }
+        GlobalScope.launch(Dispatchers.IO) { runCatching { DefaultNetworkMonitor.stop() } }
         runCatching { if (::commandServer.isInitialized) commandServer.close() }
         binder.close()
     }

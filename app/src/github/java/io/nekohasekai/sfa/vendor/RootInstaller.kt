@@ -25,7 +25,7 @@ object RootInstaller {
                     handle.service.installPackage(
                         pfd,
                         apkFile.length(),
-                        android.os.UserHandle.getUserId(android.os.Process.myUid()),
+                        android.os.Process.myUid() / 100_000,
                     )
                 }
             }
