@@ -8,7 +8,7 @@ import java.util.Locale
 class HTTPClient : Closeable {
     companion object {
         val userAgent by lazy {
-            var userAgent = "SFA (sing-box "
+            var userAgent = "Bifrost (sing-box "
             userAgent += Libbox.version()
             userAgent += "; language "
             userAgent += Locale.getDefault().toLanguageTag().replace("-", "_")
