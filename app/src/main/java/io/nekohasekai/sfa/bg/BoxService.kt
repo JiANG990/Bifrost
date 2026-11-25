@@ -372,17 +372,31 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 val key = physicalNetworkKey()
                 Log.i(TAG, "network change: '$lastKey' -> '$key'")
                 if (key.isEmpty() || key == lastKey) return
-                lastKey = key
                 if (scheduled) return
                 scheduled = true
+                var target = key
                 GlobalScope.launch(Dispatchers.IO) {
-                    delay(NETWORK_RELOAD_DELAY)
+                    // The network often flaps a few times while it settles. Commit lastKey only
+                    // once the key has held still and the reload actually runs: if this pass
+                    // loses the race, lastKey keeps the old value, so the next callback still
+                    // sees a change instead of dropping the switch silently.
+                    repeat(4) {
+                        delay(NETWORK_RELOAD_DELAY)
+                        val now = physicalNetworkKey()
+                        if (now.isEmpty() || now == lastKey) {
+                            scheduled = false
+                            return@launch
+                        }
+                        if (now != target) {
+                            target = now
+                            return@repeat
+                        }
+                        lastKey = now
+                        scheduled = false
+                        runCatching { serviceReload0() }
+                        return@launch
+                    }
                     scheduled = false
-                    // The network often flaps a few times while it settles. Reload only when
-                    // the key still matches the one that triggered this pass, otherwise the
-                    // next callback handles it.
-                    if (physicalNetworkKey() != key) return@launch
-                    runCatching { serviceReload0() }
                 }
             }
 
