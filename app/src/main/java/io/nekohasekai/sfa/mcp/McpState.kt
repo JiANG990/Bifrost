@@ -3,8 +3,6 @@ package io.nekohasekai.sfa.mcp
 import io.nekohasekai.libbox.ConnectionEvents
 import io.nekohasekai.libbox.Connections
 import io.nekohasekai.libbox.LogEntry
-import io.nekohasekai.libbox.OutboundGroup
-import io.nekohasekai.libbox.OutboundGroupItem
 import io.nekohasekai.libbox.StatusMessage
 import io.nekohasekai.sfa.compose.model.Connection
 import io.nekohasekai.sfa.ktx.toList
@@ -18,6 +16,17 @@ import kotlinx.coroutines.GlobalScope
  */
 object McpState : CommandClient.Handler {
 
+    /** Plain-Kotlin copy of a proxy item; libbox objects die with the core. */
+    data class ItemSnapshot(val tag: String, val type: String, val urlTestDelay: Int)
+
+    /** Plain-Kotlin copy of an outbound group, safe to read after a core reload. */
+    data class GroupSnapshot(
+        val tag: String,
+        val type: String,
+        val selected: String,
+        val items: List<ItemSnapshot>,
+    )
+
     private const val MAX_LOGS = 500
 
     @Volatile
@@ -29,11 +38,11 @@ object McpState : CommandClient.Handler {
         private set
 
     @Volatile
-    var groups: List<OutboundGroup> = emptyList()
+    var groups: List<GroupSnapshot> = emptyList()
         private set
 
     @Volatile
-    var outbounds: List<OutboundGroupItem> = emptyList()
+    var outbounds: List<ItemSnapshot> = emptyList()
         private set
 
     @Volatile
@@ -51,7 +60,13 @@ object McpState : CommandClient.Handler {
     @OptIn(DelicateCoroutinesApi::class)
     @Synchronized
     fun start() {
-        if (client != null) return
+        // A reload tears the core connection down without telling us, so a non-null
+        // client does not mean we are still attached: reconnect when disconnected.
+        if (client != null) {
+            if (connected) return
+            runCatching { client?.disconnect() }
+            client = null
+        }
         val created = CommandClient(
             GlobalScope,
             listOf(
@@ -71,10 +86,14 @@ object McpState : CommandClient.Handler {
 
     @Synchronized
     fun stop() {
-        client?.disconnect()
+        runCatching { client?.disconnect() }
         client = null
         connected = false
         status = null
+        clashMode = ""
+        groups = emptyList()
+        outbounds = emptyList()
+        synchronized(logsLock) { logs.clear() }
         synchronized(connectionsLock) { connectionStore = null }
     }
 
@@ -100,22 +119,34 @@ object McpState : CommandClient.Handler {
 
     override fun onDisconnected() {
         connected = false
+        // The cached libbox objects are already invalid; reading them yields garbage
+        // values (negative counters) instead of a clean "not connected".
+        status = null
     }
 
     override fun onConnectionError(message: String) {
         connected = false
+        status = null
     }
 
     override fun updateStatus(status: StatusMessage) {
         this.status = status
     }
 
-    override fun updateGroups(newGroups: MutableList<OutboundGroup>) {
-        groups = newGroups.toList()
+    override fun updateGroups(newGroups: MutableList<io.nekohasekai.libbox.OutboundGroup>) {
+        groups = newGroups.map { group ->
+            val items = ArrayList<ItemSnapshot>()
+            val iterator = group.items
+            while (iterator.hasNext()) {
+                val item = iterator.next()
+                items.add(ItemSnapshot(item.tag, item.type, item.urlTestDelay))
+            }
+            GroupSnapshot(group.tag, group.type, group.selected, items)
+        }
     }
 
-    override fun updateOutbounds(outbounds: List<OutboundGroupItem>) {
-        this.outbounds = outbounds
+    override fun updateOutbounds(outbounds: List<io.nekohasekai.libbox.OutboundGroupItem>) {
+        this.outbounds = outbounds.map { ItemSnapshot(it.tag, it.type, it.urlTestDelay) }
     }
 
     override fun initializeClashMode(modeList: List<String>, currentMode: String) {

@@ -35,7 +35,8 @@ object SsidModeConfig {
         if (mapping.isBlank()) return content
         return try {
             lastError = null
-            val root = JSONObject(sanitize(content))
+            val root = runCatching { JSONObject(content) }
+                .getOrElse { JSONObject(sanitize(content)) }
             val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
             val existing = route.optJSONArray("rules") ?: JSONArray()
             val finalTag = route.optString("final", "")
@@ -43,7 +44,7 @@ object SsidModeConfig {
             val directSsids = ArrayList<String>()
             for (line in mapping.lineSequence()) {
                 val trimmed = line.trim()
-                val index = trimmed.indexOf('=')
+                val index = trimmed.lastIndexOf('=')
                 if (index <= 0) continue
                 val ssid = trimmed.substring(0, index).trim()
                 val mode = trimmed.substring(index + 1).trim().lowercase()
@@ -71,58 +72,62 @@ object SsidModeConfig {
         }
     }
 
-    /** Points dns.final at the gateway of the connected Wi-Fi network. */
+    /**
+     * Points dns.final at the gateway of the connected Wi-Fi network.
+     *
+     * Only the servers this method generates (tags "lan-gateway" / "lan-gateway6") are
+     * rewritten, so a profile whose first UDP server is MagicDNS or a corporate resolver
+     * keeps working. The AAAA rule is appended after the user's own rules so that a
+     * geosite-cn -> DoH rule still wins for mainland domains.
+     */
     private fun applyLanDns(root: JSONObject, context: Context?) {
         val gateways = currentGateways(context)
-        val gateway = gateways.first
-        if (gateway == null) {
-            lastError = "auto DNS failed: no Wi-Fi gateway found"
-            return
-        }
+        val gateway = gateways.first ?: return // not on Wi-Fi: keep the profile DNS as is
         val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
         val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
-        var tag: String? = null
-        for (i in 0 until servers.length()) {
-            val server = servers.optJSONObject(i) ?: continue
-            if (server.optString("type") != "udp") continue
-            server.put("server", gateway)
-            server.put("server_port", 53)
-            server.put("detour", "direct")
-            tag = server.optString("tag")
-            break
-        }
-        if (tag.isNullOrEmpty()) {
-            tag = "lan-gateway"
-            servers.put(
-                JSONObject()
-                    .put("type", "udp")
-                    .put("tag", tag)
-                    .put("server", gateway)
-                    .put("server_port", 53)
-                    .put("detour", "direct"),
-            )
-        }
+        val tag = "lan-gateway"
+        val tag6 = "lan-gateway6"
+        putGatewayServer(servers, tag, gateway)
         val gateway6 = gateways.second
-        if (!gateway6.isNullOrEmpty()) {
-            val tag6 = "lan-gateway6"
-            servers.put(
-                JSONObject()
-                    .put("type", "udp")
-                    .put("tag", tag6)
-                    .put("server", gateway6)
-                    .put("server_port", 53)
-                    .put("detour", "direct"),
-            )
-            val rules = dns.optJSONArray("rules") ?: JSONArray()
-            val merged = JSONArray()
-            merged.put(JSONObject().put("query_type", JSONArray().put("A")).put("server", tag))
-            merged.put(JSONObject().put("query_type", JSONArray().put("AAAA")).put("server", tag6))
-            for (i in 0 until rules.length()) merged.put(rules.get(i))
-            dns.put("rules", merged)
+        val has6 = !gateway6.isNullOrEmpty()
+        if (has6) putGatewayServer(servers, tag6, gateway6!!)
+
+        val rules = dns.optJSONArray("rules") ?: JSONArray().also { dns.put("rules", it) }
+        val merged = JSONArray()
+        for (i in 0 until rules.length()) {
+            val item = rules.optJSONObject(i) ?: continue
+            if (item.optString("server") == tag || item.optString("server") == tag6) continue
+            merged.put(item)
         }
+        if (has6) {
+            merged.put(JSONObject().put("query_type", JSONArray().put("AAAA")).put("server", tag6))
+        }
+        dns.put("rules", merged)
         dns.put("final", tag)
         dns.put("strategy", "prefer_ipv4")
         Log.i(TAG, "dns.final -> $gateway/$gateway6 ($tag)")
+    }
+
+    /** Adds or updates a plain UDP DNS server entry owned by this injector. */
+    private fun putGatewayServer(servers: JSONArray, tag: String, address: String) {
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            if (server.optString("tag") != tag) continue
+            server.put("type", "udp")
+            server.put("server", address)
+            server.put("server_port", 53)
+            server.put("detour", "direct")
+            server.remove("tls")
+            return
+        }
+        servers.put(
+            JSONObject()
+                .put("type", "udp")
+                .put("tag", tag)
+                .put("server", address)
+                .put("server_port", 53)
+                .put("detour", "direct"),
+        )
     }
 
     /**

@@ -3,14 +3,25 @@ package io.nekohasekai.sfa.vendor
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
+import io.nekohasekai.sfa.Application
 import java.io.File
 import java.io.FileInputStream
 import android.content.pm.PackageInstaller as AndroidPackageInstaller
 
 object SystemPackageInstaller {
 
-    fun canSystemSilentInstall(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    /**
+     * USER_ACTION_NOT_REQUIRED is ignored unless the caller really holds
+     * INSTALL_PACKAGES, so without that permission the session is guaranteed to fail
+     * after the download.
+     */
+    fun canSystemSilentInstall(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+        return Application.application.checkSelfPermission(android.Manifest.permission.INSTALL_PACKAGES) ==
+            PackageManager.PERMISSION_GRANTED
+    }
 
     fun install(context: Context, apkFile: File) {
         val packageInstaller = context.packageManager.packageInstaller

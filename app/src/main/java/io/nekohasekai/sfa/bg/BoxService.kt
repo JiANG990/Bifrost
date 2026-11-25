@@ -46,6 +46,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -122,6 +124,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     private var lastProfileName = ""
 
+    @Volatile
+    private var stopRequested = false
+
     private suspend fun startService() {
         try {
             val selectedProfileId = Settings.selectedProfile
@@ -184,6 +189,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 }
             }
 
+            if (stopRequested) {
+                stopRequested = false
+                stopService()
+                return
+            }
+
             status.postValue(Status.Started)
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_started)
@@ -212,26 +223,31 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
     }
 
-    suspend fun serviceReload0() {
-        val selectedProfileId = Settings.selectedProfile
-        if (selectedProfileId == -1L) {
-            stopAndAlert(Alert.EmptyConfiguration)
-            return
-        }
+    private val reloadMutex = Mutex()
 
-        val profile = ProfileManager.get(selectedProfileId)
-        if (profile == null) {
-            stopAndAlert(Alert.EmptyConfiguration)
-            return
-        }
-
-        val content = SsidModeConfig.wrap(File(profile.typed.path).readText(), service)
-        if (content.isBlank()) {
-            stopAndAlert(Alert.EmptyConfiguration)
-            return
-        }
-        lastProfileName = profile.name
+    suspend fun serviceReload0() = reloadMutex.withLock {
+        // A reload while the core is tearing down would resurrect it or throw from
+        // the Go callback thread, so bail out instead of racing the state machine.
+        if (status.value == Status.Stopping || status.value == Status.Stopped) return@withLock
         try {
+            val selectedProfileId = Settings.selectedProfile
+            if (selectedProfileId == -1L) {
+                stopAndAlert(Alert.EmptyConfiguration)
+                return@withLock
+            }
+
+            val profile = ProfileManager.get(selectedProfileId)
+            if (profile == null) {
+                stopAndAlert(Alert.EmptyConfiguration)
+                return@withLock
+            }
+
+            val content = SsidModeConfig.wrap(File(profile.typed.path).readText(), service)
+            if (content.isBlank()) {
+                stopAndAlert(Alert.EmptyConfiguration)
+                return@withLock
+            }
+            lastProfileName = profile.name
             commandServer.startOrReloadService(
                 content,
                 OverrideOptions().apply {
@@ -239,29 +255,17 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     if (Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled) {
                         val appList = Settings.getEffectivePerAppProxyList()
                         if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
-                            includePackage = PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
+                            includePackage =
+                                PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
                         } else {
-                            excludePackage = PlatformInterfaceWrapper.StringArray((appList - Application.application.packageName).iterator())
+                            excludePackage =
+                                PlatformInterfaceWrapper.StringArray((appList - Application.application.packageName).iterator())
                         }
                     }
                 },
             )
         } catch (e: Exception) {
             stopAndAlert(Alert.CreateService, e.message)
-            return
-        }
-
-        if (commandServer.needWIFIState()) {
-            val wifiPermission =
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                    android.Manifest.permission.ACCESS_FINE_LOCATION
-                } else {
-                    android.Manifest.permission.ACCESS_BACKGROUND_LOCATION
-                }
-            if (!service.hasPermission(wifiPermission)) {
-                stopAndAlert(Alert.RequestLocationPermission)
-                return
-            }
         }
     }
 
@@ -287,6 +291,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     @OptIn(DelicateCoroutinesApi::class)
     private fun stopService() {
+        if (status.value == Status.Starting) {
+            // The start coroutine is still bringing the core up: remember the request
+            // and let startService() stop right after it finishes, otherwise the VPN
+            // ends up running even though the user already pressed stop.
+            stopRequested = true
+            return
+        }
         if (status.value != Status.Started) return
         status.value = Status.Stopping
         if (receiverRegistered) {
@@ -393,6 +404,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     internal fun onDestroy() {
         idleModeUpdates.cancel()
         idleModeScope.cancel()
+        runCatching { DefaultNetworkMonitor.stop() }
+        runCatching { if (::commandServer.isInitialized) commandServer.close() }
         binder.close()
     }
 

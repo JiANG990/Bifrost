@@ -1,5 +1,7 @@
 package io.nekohasekai.sfa.vendor
 
+import java.io.File
+
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
@@ -8,6 +10,7 @@ import androidx.camera.core.ImageAnalysis
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.R
+import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.bg.RootClient
 import io.nekohasekai.sfa.compose.screen.qrscan.QRCodeCropArea
 import io.nekohasekai.sfa.database.Settings
@@ -140,6 +143,11 @@ object Vendor : VendorInterface {
         } else {
             ApkDownloader().use { it.download(downloadUrl) }
         }
+        val wasRunning = File(Application.application.filesDir, "command.sock").exists()
         ApkInstaller.install(context, apkFile)
+        // install() stops the core; without this the VPN stays off after an update.
+        if (wasRunning) {
+            BoxService.start()
+        }
     }
 }

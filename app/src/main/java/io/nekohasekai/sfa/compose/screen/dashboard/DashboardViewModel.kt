@@ -293,6 +293,14 @@ class DashboardViewModel :
     }
 
     private suspend fun applySelectedProfile() {
+        // While the core is still starting, stopService() cannot interrupt it yet, so
+        // wait for the start coroutine to settle before touching the profile.
+        if (_serviceStatus.value == Status.Starting) {
+            for (i in 0 until 30) {
+                if (_serviceStatus.value != Status.Starting) break
+                delay(100L)
+            }
+        }
         if (_serviceStatus.value != Status.Started) return
         if (Settings.detectServiceMode() == Settings.serviceMode) {
             Libbox.newStandaloneCommandClient().serviceReload()

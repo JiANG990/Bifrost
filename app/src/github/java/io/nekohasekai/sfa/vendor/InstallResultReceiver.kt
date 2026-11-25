@@ -36,6 +36,8 @@ class InstallResultReceiver : BroadcastReceiver() {
             }
             PackageInstaller.STATUS_SUCCESS -> {
                 Log.d(TAG, "Installation successful")
+                // The APK we just installed must not be reused for the next update.
+                UpdateState.cachedApkFile.value?.let { runCatching { it.delete() } }
                 UpdateState.setInstallStatus(UpdateState.InstallStatus.Success)
             }
             else -> {

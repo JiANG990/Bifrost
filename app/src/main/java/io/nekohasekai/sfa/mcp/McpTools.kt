@@ -118,9 +118,7 @@ object McpTools {
         val groups = JSONArray()
         for (group in McpState.groups) {
             val items = JSONArray()
-            val iterator = group.items
-            while (iterator.hasNext()) {
-                val item = iterator.next()
+            for (item in group.items) {
                 items.put(
                     JSONObject()
                         .put("tag", item.tag)
@@ -211,6 +209,9 @@ object McpTools {
         val id = args.optLong("id", -1L)
         require(id > 0) { "id is required" }
         val profile = runBlocking { ProfileManager.get(id) } ?: throw IllegalArgumentException("profile not found: $id")
+        require(!profile.typed.path.contains("..") && File(profile.typed.path).isAbsolute) {
+            "profile path is not allowed"
+        }
         val file = File(profile.typed.path)
         val content = if (file.exists()) file.readText() else ""
         val maxChars = args.optInt("maxChars", 20_000).coerceIn(1000, 200_000)
@@ -225,37 +226,56 @@ object McpTools {
 
     // ---- write tools ------------------------------------------------------
 
+    /** Runs [block] on a fresh standalone client, always releasing the Go object. */
+    private inline fun <T> withStandaloneClient(block: (io.nekohasekai.libbox.CommandClient) -> T): T {
+        val client = CommandTarget.standaloneClient()
+        return try {
+            block(client)
+        } finally {
+            runCatching { client.disconnect() }
+        }
+    }
+
     private fun selectOutbound(args: JSONObject): JSONObject {
         val group = args.optString("group")
         val item = args.optString("item")
         require(group.isNotEmpty() && item.isNotEmpty()) { "group and item are required" }
-        CommandTarget.standaloneClient().selectOutbound(group, item)
+        val known = McpState.groups.firstOrNull { it.tag == group }
+            ?: throw IllegalArgumentException("unknown group: $group")
+        if (known.items.none { it.tag == item }) throw IllegalArgumentException("unknown item: $item")
+        withStandaloneClient { it.selectOutbound(group, item) }
         return JSONObject().put("ok", true).put("group", group).put("selected", item)
     }
 
     private fun closeConnection(args: JSONObject): JSONObject {
         val id = args.optString("id")
         require(id.isNotEmpty()) { "id is required" }
-        CommandTarget.standaloneClient().closeConnection(id)
+        withStandaloneClient { it.closeConnection(id) }
         return JSONObject().put("ok", true).put("closed", id)
     }
 
     private fun closeAllConnections(): JSONObject {
-        CommandTarget.standaloneClient().closeConnections()
+        withStandaloneClient { it.closeConnections() }
         return JSONObject().put("ok", true)
     }
 
     private fun setClashMode(args: JSONObject): JSONObject {
-        val mode = args.optString("mode")
+        val mode = args.optString("mode").lowercase()
         require(mode.isNotEmpty()) { "mode is required" }
-        CommandTarget.standaloneClient().setClashMode(mode)
+        require(mode == "rule" || mode == "global" || mode == "direct") {
+            "mode must be rule, global or direct"
+        }
+        withStandaloneClient { it.setClashMode(mode) }
         return JSONObject().put("ok", true).put("mode", mode)
     }
 
     private fun urlTest(args: JSONObject): JSONObject {
         val tag = args.optString("tag")
         require(tag.isNotEmpty()) { "tag is required" }
-        CommandTarget.standaloneClient().urlTest(tag)
+        val known = McpState.groups.any { g -> g.items.any { it.tag == tag } } ||
+            McpState.outbounds.any { it.tag == tag }
+        if (!known && McpState.groups.isNotEmpty()) throw IllegalArgumentException("unknown outbound: $tag")
+        withStandaloneClient { it.urlTest(tag) }
         return JSONObject().put("ok", true).put("tag", tag)
     }
 

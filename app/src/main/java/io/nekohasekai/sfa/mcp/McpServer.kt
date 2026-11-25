@@ -7,7 +7,9 @@ import java.io.BufferedOutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Minimal loopback-only MCP (JSON-RPC 2.0) endpoint.
@@ -20,6 +22,10 @@ object McpServer {
     private const val TAG = "McpServer"
     const val DEFAULT_PORT = 18080
 
+    private const val MAX_BODY = 1_048_576
+    private const val MAX_LINE = 8_192
+    private const val REQUEST_TIMEOUT_MS = 5_000L
+
     @Volatile
     private var serverSocket: ServerSocket? = null
 
@@ -29,11 +35,19 @@ object McpServer {
         Thread(r, "mcp-worker").apply { isDaemon = true }
     }
 
+    /** Live client sockets, so stop() can abort in-flight requests. */
+    private val clients: MutableSet<Socket> = ConcurrentHashMap.newKeySet()
+
+    private val requestSeq = AtomicLong()
+
     val isRunning: Boolean get() = serverSocket?.isClosed == false && acceptThread?.isAlive == true
 
     @Synchronized
     fun start() {
         if (isRunning) return
+        if (Settings.mcpServerToken.isBlank()) {
+            Settings.mcpServerToken = newToken()
+        }
         val port = Settings.mcpServerPort.takeIf { it in 1024..65535 } ?: DEFAULT_PORT
         val socket = try {
             ServerSocket(port, 8, InetAddress.getByName("127.0.0.1"))
@@ -56,6 +70,8 @@ object McpServer {
         serverSocket = null
         acceptThread?.interrupt()
         acceptThread = null
+        clients.forEach { runCatching { it.close() } }
+        clients.clear()
         McpState.stop()
         Log.i(TAG, "MCP stopped")
     }
@@ -78,6 +94,7 @@ object McpServer {
     }
 
     private fun serve(client: Socket) {
+        clients.add(client)
         client.use { socket ->
             socket.soTimeout = 15_000
             val input = BufferedInputStream(socket.getInputStream())
@@ -99,6 +116,8 @@ object McpServer {
             } catch (e: Exception) {
                 Log.w(TAG, "request failed", e)
                 runCatching { writeResponse(output, jsonRpcError(null, -32603, e.message ?: "internal error")) }
+            } finally {
+                clients.remove(socket)
             }
         }
     }
@@ -131,6 +150,7 @@ object McpServer {
             }
         }
         val length = headers["content-length"]?.toIntOrNull() ?: 0
+        if (length > MAX_BODY) throw java.io.IOException("request body too large")
         val body = if (length > 0) {
             val buffer = ByteArray(length)
             var read = 0
@@ -147,15 +167,21 @@ object McpServer {
     }
 
     private fun readLine(input: BufferedInputStream): String? {
+        val deadline = System.currentTimeMillis() + REQUEST_TIMEOUT_MS
         val builder = StringBuilder()
         while (true) {
+            if (System.currentTimeMillis() > deadline) throw java.io.IOException("request timeout")
             val b = input.read()
             if (b < 0) return if (builder.isEmpty()) null else builder.toString()
             if (b == '\n'.code) break
             if (b != '\r'.code) builder.append(b.toChar())
+            if (builder.length > MAX_LINE) throw java.io.IOException("header line too long")
         }
         return builder.toString()
     }
+
+    /** Tokens are 32 hex chars; generated once and persisted when the server starts. */
+    private fun newToken(): String = java.util.UUID.randomUUID().toString().replace("-", "")
 
     private fun writeResponse(output: BufferedOutputStream, body: String) {
         val bytes = body.toByteArray(Charsets.UTF_8)
