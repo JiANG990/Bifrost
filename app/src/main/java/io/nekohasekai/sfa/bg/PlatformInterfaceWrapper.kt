@@ -114,7 +114,7 @@ interface PlatformInterfaceWrapper : PlatformInterface {
             boxInterface.dnsSearchDomain =
                 StringArray(
                     linkProperties.domains
-                        ?.split(' ')
+                        ?.split(Regex("""[,\s]+"""))
                         ?.filter { it.isNotEmpty() }
                         .orEmpty()
                         .iterator(),
