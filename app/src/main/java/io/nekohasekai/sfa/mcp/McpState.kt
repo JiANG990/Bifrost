@@ -130,6 +130,10 @@ object McpState : CommandClient.Handler {
 
     fun lastLogSeq(): Long = synchronized(logsLock) { logSeq }
 
+    fun rawConnectionCount(): Int = synchronized(connectionsLock) {
+        connectionStore?.let { runCatching { it.iterator().toList().size }.getOrElse { -2 } } ?: -1
+    }
+
     fun snapshotConnections(): List<Connection> = synchronized(connectionsLock) {
         val store = connectionStore ?: return emptyList()
         store.iterator().toList()

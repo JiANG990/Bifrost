@@ -318,6 +318,31 @@ class BoxService(private val service: Service, private val platformInterface: Pl
      * DNS only make sense on the network they were generated for. The VPN interface is
      * excluded by the request so our own tun does not trigger it.
      */
+    private fun physicalNetworkKey(): String {
+        val cm = service.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return ""
+        val parts = ArrayList<String>()
+        runCatching {
+            for (network in cm.allNetworks) {
+                val caps = cm.getNetworkCapabilities(network) ?: continue
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+                when {
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> parts.add("wifi|" + currentSsid())
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> parts.add("cell")
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> parts.add("eth")
+                }
+            }
+        }
+        return parts.sorted().joinToString(",")
+    }
+
+    @Suppress("DEPRECATION")
+    private fun currentSsid(): String = runCatching {
+        val wifi = service.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+        val raw = wifi?.connectionInfo?.ssid?.trim('"') ?: ""
+        if (raw == "<unknown ssid>") "" else raw
+    }.getOrDefault("")
+
     private fun registerNetworkReload() {
         if (networkReloadCallback != null) return
         val cm = service.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
@@ -329,7 +354,15 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         val callback = object : ConnectivityManager.NetworkCallback() {
             private var scheduled = false
 
-            private fun schedule() {
+            // Only a real move between physical networks may reload the core. Reacting to
+            // every callback makes the tunnel's own network changes reload the core, which
+            // tears down all connections and immediately triggers another reload.
+            private var lastKey: String? = physicalNetworkKey()
+
+            private fun onChange() {
+                val key = physicalNetworkKey()
+                if (key == lastKey) return
+                lastKey = key
                 if (scheduled) return
                 scheduled = true
                 GlobalScope.launch(Dispatchers.IO) {
@@ -339,8 +372,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 }
             }
 
-            override fun onAvailable(network: Network) = schedule()
-            override fun onLost(network: Network) = schedule()
+            override fun onAvailable(network: Network) = onChange()
+            override fun onLost(network: Network) = onChange()
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = onChange()
         }
         runCatching { cm.registerNetworkCallback(request, callback) }
             .onSuccess { networkReloadCallback = callback }

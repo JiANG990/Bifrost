@@ -175,7 +175,8 @@ object McpTools {
                     .put("createdAt", connection.createdAt),
             )
         }
-        return JSONObject().put("total", all.size).put("count", items.length()).put("items", items)
+        return JSONObject().put("total", all.size).put("count", items.length())
+            .put("storeSize", McpState.rawConnectionCount()).put("items", items)
     }
 
     private fun logs(args: JSONObject): JSONObject {
@@ -367,16 +368,34 @@ object McpTools {
         val app = io.nekohasekai.sfa.Application.application
         val cm = app.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
             as? android.net.ConnectivityManager
-        val network = cm?.activeNetwork
-        val caps = if (cm != null && network != null) cm.getNetworkCapabilities(network) else null
         val transports = JSONArray()
-        if (caps != null) {
-            if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) transports.put("wifi")
-            if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)) transports.put("cellular")
-            if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) transports.put("ethernet")
-            if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) transports.put("vpn")
+        var primary: android.net.Network? = null
+        var primaryCaps: android.net.NetworkCapabilities? = null
+        var vpnActive = false
+        val seen = HashSet<String>()
+        if (cm != null) {
+            runCatching {
+                for (network in cm.allNetworks) {
+                    val caps = cm.getNetworkCapabilities(network) ?: continue
+                    if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) {
+                        vpnActive = true
+                        continue
+                    }
+                    val type = when {
+                        caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                        caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+                        caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+                        else -> null
+                    } ?: continue
+                    if (seen.add(type)) transports.put(type)
+                    if (primary == null) {
+                        primary = network
+                        primaryCaps = caps
+                    }
+                }
+            }
         }
-        val onWifi = caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
+        val onWifi = primaryCaps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
         val ssid = if (!onWifi) {
             null
         } else {
@@ -390,22 +409,22 @@ object McpTools {
         }
         val dnsServers = JSONArray()
         val gateway = ArrayList<String>()
+        val network = primary
         if (cm != null && network != null) {
             runCatching {
                 val lp = cm.getLinkProperties(network) ?: return@runCatching
                 lp.dnsServers.forEach { dnsServers.put(it.hostAddress ?: "") }
                 for (route in lp.routes) {
-                    if (route.isDefaultRoute && route.gateway != null) {
-                        route.gateway?.hostAddress?.let { gateway.add(it) }
-                    }
+                    val gw = route.gateway ?: continue
+                    if (route.isDefaultRoute) gw.hostAddress?.let { gateway.add(it) }
                 }
             }
         }
         return JSONObject()
             .put("transports", transports)
             .put("wifi", onWifi)
-            .put("cellular", caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true)
-            .put("vpnActive", caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true)
+            .put("cellular", primaryCaps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true)
+            .put("vpnActive", vpnActive)
             .put("ssid", ssid ?: JSONObject.NULL)
             .put("dnsServers", dnsServers)
             .put("gateway", JSONArray(gateway.distinct()))
