@@ -42,12 +42,14 @@ object SsidModeConfig {
             val finalTag = route.optString("final", "")
             val generated = JSONArray()
             val directSsids = ArrayList<String>()
+            val seenSsids = HashSet<String>()
             for (line in mapping.lineSequence()) {
                 val trimmed = line.trim()
                 val index = trimmed.lastIndexOf('=')
                 if (index <= 0) continue
                 val ssid = trimmed.substring(0, index).trim()
                 val mode = trimmed.substring(index + 1).trim().lowercase()
+                if (ssid.isEmpty() || !seenSsids.add(ssid)) continue
                 rule(ssid, mode, finalTag)?.let {
                     generated.put(it)
                     if (mode == "direct") directSsids.add(ssid)

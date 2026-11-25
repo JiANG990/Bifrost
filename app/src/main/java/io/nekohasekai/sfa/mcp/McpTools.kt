@@ -95,6 +95,8 @@ object McpTools {
         "device" -> device()
         "dns_query" -> dnsQuery(args)
         "probe" -> probe(args)
+        "ssid_mode" -> ssidMode(args)
+        "update_state" -> updateState()
         "select_outbound" -> selectOutbound(args)
         "close_connection" -> closeConnection(args)
         "close_all_connections" -> closeAllConnections()
@@ -403,6 +405,46 @@ object McpTools {
         }
     }
 
+    private fun ssidMode(args: JSONObject): JSONObject {
+        if (args.optString("action", "get").equals("set", ignoreCase = true)) {
+            val list = args.optString("list")
+            require(list.isNotBlank()) { "list is required when action=set" }
+            Settings.ssidModeList = list
+            if (args.has("enabled")) Settings.ssidModeEnabled = args.optBoolean("enabled")
+            if (args.has("dns")) Settings.ssidModeDnsEnabled = args.optBoolean("dns")
+            if (args.optBoolean("reload", true) && McpState.connected) BoxService.launchReload()
+        }
+        return JSONObject()
+            .put("enabled", Settings.ssidModeEnabled)
+            .put("dnsEnabled", Settings.ssidModeDnsEnabled)
+            .put("list", Settings.ssidModeList)
+    }
+
+    private fun updateState(): JSONObject {
+        val info = io.nekohasekai.sfa.update.UpdateState.updateInfo.value
+        val apk = io.nekohasekai.sfa.update.UpdateState.cachedApkFile.value
+        return JSONObject()
+            .put("hasUpdate", io.nekohasekai.sfa.update.UpdateState.hasUpdate.value)
+            .put("isChecking", io.nekohasekai.sfa.update.UpdateState.isChecking.value)
+            .put("isDownloading", io.nekohasekai.sfa.update.UpdateState.isDownloading.value)
+            .put("downloadError", io.nekohasekai.sfa.update.UpdateState.downloadError.value ?: JSONObject.NULL)
+            .put(
+                "latest",
+                info?.let {
+                    JSONObject().put("versionCode", it.versionCode).put("versionName", it.versionName)
+                        .put("downloadUrl", it.downloadUrl).put("fileSize", it.fileSize)
+                } ?: JSONObject.NULL,
+            )
+            .put(
+                "cachedApk",
+                apk?.let {
+                    JSONObject().put("path", it.absolutePath).put("size", it.length())
+                        .put("mtime", it.lastModified())
+                } ?: JSONObject.NULL,
+            )
+            .put("installStatus", io.nekohasekai.sfa.update.UpdateState.installStatus.value.toString())
+    }
+
     // ---- schema -----------------------------------------------------------
 
     private fun schema(vararg required: String): JSONObject = JSONObject()
@@ -492,6 +534,19 @@ object McpTools {
                 schema("name").let { param(it, "name", "string", "Hostname, e.g. www.google.com") },
             ),
         )
+        .put(
+            tool(
+                "ssid_mode",
+                "Read or replace the SSID routing mapping and the gateway DNS switch.",
+                schema()
+                    .let { param(it, "action", "string", "get or set.", "get") }
+                    .let { param(it, "list", "string", "Mapping lines, one 'SSID=mode' per line (mode: direct|global).") }
+                    .let { param(it, "enabled", "boolean", "Enable SSID mode.") }
+                    .let { param(it, "dns", "boolean", "Point DNS at the gateway on those networks.") }
+                    .let { param(it, "reload", "boolean", "Reload the core after writing.", true) },
+            ),
+        )
+        .put(tool("update_state", "In-app update state: latest version, cached APK and install status.", schema()))
         .put(
             tool(
                 "probe",

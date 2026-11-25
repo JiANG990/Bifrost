@@ -104,6 +104,8 @@
 | `update_profile` | 写入配置内容、校验 JSON，可选立即重载内核 |
 | `device` | 应用、设备、内核与 MCP 服务信息 |
 | `dns_query` / `probe` | 解析域名（返回地址与耗时）/ 测试 TCP 连通与延迟 |
+| `ssid_mode` | 读取或改写 SSID 映射与网关 DNS 开关 |
+| `update_state` | 应用内更新状态：最新版本、缓存的 APK、安装结果 |
 | `select_outbound` | 在组内切换节点 |
 | `close_connection` / `close_all_connections` | 关闭连接 |
 | `set_clash_mode` | 切换 rule / global / direct |
