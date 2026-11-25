@@ -36,6 +36,7 @@ import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.ssid.SsidModeConfig
 import io.nekohasekai.sfa.ktx.hasPermission
+import io.nekohasekai.sfa.mcp.McpState
 import io.nekohasekai.sfa.vendor.Vendor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -196,6 +197,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
 
             status.postValue(Status.Started)
+            // The core is up only now, so a client created at app start has to reconnect.
+            runCatching { McpState.start() }
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_started)
             }
@@ -264,6 +267,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     }
                 },
             )
+            runCatching { McpState.start() }
         } catch (e: Exception) {
             stopAndAlert(Alert.CreateService, e.message)
         }
