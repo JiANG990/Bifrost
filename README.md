@@ -156,3 +156,8 @@ fork 后请替换为自己的 keystore 与密码；沿用他人签名签出的 A
 
 GPL-3.0，基于 [SagerNet/sing-box-for-android](https://github.com/SagerNet/sing-box-for-android)。
 原始版权归 nekohasekai 及 sing-box 贡献者所有；本分支的修改同样以 GPL-3.0 发布。
+
+## 声明
+
+本项目所有代码与文档均由 AI 生成，可能存在未经人工逐行验证的缺陷。使用前请自行评估风险。
+如遇到问题或有改进建议，欢迎在 [Issues](https://github.com/JiANG990/Bifrost/issues) 提交。
