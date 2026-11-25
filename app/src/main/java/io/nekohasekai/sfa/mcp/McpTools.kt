@@ -118,7 +118,9 @@ object McpTools {
         val groups = JSONArray()
         for (group in McpState.groups) {
             val items = JSONArray()
-            for (item in group.items.toList()) {
+            val iterator = group.items
+            while (iterator.hasNext()) {
+                val item = iterator.next()
                 items.put(
                     JSONObject()
                         .put("tag", item.tag)
