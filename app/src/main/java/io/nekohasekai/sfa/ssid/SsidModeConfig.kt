@@ -94,17 +94,13 @@ object SsidModeConfig {
         val has6 = !gateway6.isNullOrEmpty()
         if (has6) putGatewayServer(servers, tag6, gateway6!!)
 
-        val rules = dns.optJSONArray("rules") ?: JSONArray().also { dns.put("rules", it) }
-        val merged = JSONArray()
-        for (i in 0 until rules.length()) {
-            val item = rules.optJSONObject(i) ?: continue
-            if (item.optString("server") == tag || item.optString("server") == tag6) continue
-            merged.put(item)
-        }
-        if (has6) {
-            merged.put(JSONObject().put("query_type", JSONArray().put("AAAA")).put("server", tag6))
-        }
-        dns.put("rules", merged)
+        // On the home Wi-Fi every name is answered by the router, so the gateway is
+        // the final server. Only Tailscale's own domain keeps using MagicDNS, which
+        // the router cannot resolve.
+        val rules = JSONArray()
+        rules.put(JSONObject().put("domain_suffix", JSONArray().put("ts.net")).put("server", "ts-dns"))
+        if (has6) rules.put(JSONObject().put("query_type", JSONArray().put("AAAA")).put("server", tag6))
+        dns.put("rules", rules)
         dns.put("final", tag)
         dns.put("strategy", "prefer_ipv4")
         Log.i(TAG, "dns.final -> $gateway/$gateway6 ($tag)")
