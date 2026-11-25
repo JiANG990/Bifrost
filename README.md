@@ -98,8 +98,11 @@
 | `status` | 连接状态、核心版本、实时上下行、clash 模式、当前配置 |
 | `outbounds` | 所有出站组与成员、最近一次测速延迟 |
 | `connections` | 活动连接（目标、命中规则、出站链） |
-| `logs` | 最近的核心日志（可按级别过滤） |
+| `logs` | 最近的核心日志（可按级别过滤，可用 `grep` 按关键词筛选） |
 | `profiles` / `get_profile` | 配置列表 / 读取某个配置的 JSON |
+| `runtime_config` | 实际交给内核的配置（含 SSID 与网关 DNS 注入） |
+| `update_profile` | 写入配置内容、校验 JSON，可选立即重载内核 |
+| `device` | 应用、设备、内核与 MCP 服务信息 |
 | `select_outbound` | 在组内切换节点 |
 | `close_connection` / `close_all_connections` | 关闭连接 |
 | `set_clash_mode` | 切换 rule / global / direct |

@@ -91,6 +91,8 @@ object McpTools {
         "profiles" -> profiles()
         "get_profile" -> getProfile(args)
         "runtime_config" -> runtimeConfig(args)
+        "update_profile" -> updateProfile(args)
+        "device" -> device()
         "select_outbound" -> selectOutbound(args)
         "close_connection" -> closeConnection(args)
         "close_all_connections" -> closeAllConnections()
@@ -178,15 +180,19 @@ object McpTools {
             "fatal" -> 1
             else -> 4
         }
+        val grep = args.optString("grep").trim()
         val items = JSONArray()
-        for (entry in McpState.snapshotLogs(limit, minLevel)) {
-            items.put(
-                JSONObject()
-                    .put("level", entry.level)
-                    .put("message", entry.message),
-            )
+        var seen = 0
+        val snapshot = McpState.snapshotLogs(500, minLevel)
+        for (entry in snapshot.asReversed()) {
+            if (grep.isNotEmpty() && !entry.message.contains(grep, ignoreCase = true)) continue
+            items.put(JSONObject().put("level", entry.level).put("message", entry.message))
+            seen++
+            if (seen >= limit) break
         }
-        return JSONObject().put("count", items.length()).put("items", items)
+        val ordered = JSONArray()
+        for (i in items.length() - 1 downTo 0) ordered.put(items.get(i))
+        return JSONObject().put("count", ordered.length()).put("items", ordered)
     }
 
     private fun profiles(): JSONObject {
@@ -313,6 +319,48 @@ object McpTools {
         return JSONObject().put("ok", true).put("selected", profile.id).put("name", profile.name)
     }
 
+    private fun updateProfile(args: JSONObject): JSONObject {
+        val id = args.optLong("id", -1L)
+        require(id > 0) { "id is required" }
+        val content = args.optString("content")
+        require(content.isNotBlank()) { "content is required" }
+        val profile = runBlocking { ProfileManager.get(id) }
+            ?: throw IllegalArgumentException("profile not found: $id")
+        val path = profile.typed.path
+        require(!path.contains("..") && File(path).isAbsolute) { "profile path is not allowed" }
+        // Parse before writing so a malformed config never replaces a working one.
+        org.json.JSONObject(content)
+        val file = File(path)
+        file.writeText(content)
+        var reloaded = false
+        if (args.optBoolean("reload", true) && McpState.connected) {
+            BoxService.serviceReload()
+            reloaded = true
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("id", id)
+            .put("path", path)
+            .put("size", content.length)
+            .put("reloaded", reloaded)
+    }
+
+    private fun device(): JSONObject {
+        val app = io.nekohasekai.sfa.Application.application
+        return JSONObject()
+            .put("packageName", app.packageName)
+            .put("versionName", io.nekohasekai.sfa.BuildConfig.VERSION_NAME)
+            .put("versionCode", io.nekohasekai.sfa.BuildConfig.VERSION_CODE)
+            .put("sdkInt", android.os.Build.VERSION.SDK_INT)
+            .put("brand", android.os.Build.BRAND)
+            .put("model", android.os.Build.MODEL)
+            .put("coreVersion", Libbox.version())
+            .put("service", BoxService.status.value.toString())
+            .put("mcpPort", Settings.mcpServerPort)
+            .put("mcpAllowLan", Settings.mcpServerAllowLan)
+            .put("mcpTokenSet", Settings.mcpServerToken.isNotBlank())
+    }
+
     // ---- schema -----------------------------------------------------------
 
     private fun schema(vararg required: String): JSONObject = JSONObject()
@@ -363,7 +411,8 @@ object McpTools {
                 "Recent core log lines buffered in the app.",
                 schema()
                     .let { param(it, "limit", "integer", "Maximum lines (1-500).", 100) }
-                    .let { param(it, "level", "string", "Minimum level: debug, info, warn, error.", "info") },
+                    .let { param(it, "level", "string", "Minimum level: debug, info, warn, error.", "info") }
+                    .let { param(it, "grep", "string", "Only return lines containing this text (case-insensitive).") },
             ),
         )
         .put(tool("profiles", "Configuration profiles with type, subscription URL and which one is selected.", schema()))
@@ -383,6 +432,17 @@ object McpTools {
                 schema().let { param(it, "maxChars", "integer", "Maximum characters to return.", 20000) },
             ),
         )
+        .put(
+            tool(
+                "update_profile",
+                "Replace a profile's JSON, validate it, optionally reload the core.",
+                schema("id", "content")
+                    .let { param(it, "id", "integer", "Profile id from the profiles tool.") }
+                    .let { param(it, "content", "string", "Full JSON config text.") }
+                    .let { param(it, "reload", "boolean", "Reload the core after writing.", true) },
+            ),
+        )
+        .put(tool("device", "App, device, core and MCP server facts.", schema()))
         .put(
             tool(
                 "select_outbound",
