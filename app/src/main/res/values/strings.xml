@@ -773,4 +773,12 @@
     <string name="ssid_mode_direct">Direct</string>
     <string name="ssid_mode_saved">Saved. Reconnect the VPN or change Wi-Fi to apply.</string>
     <string name="ssid_mode_inject_failed">Configuration injection failed</string>
+    <string name="mcp_server_title">MCP server</string>
+    <string name="mcp_enable">Enable MCP server</string>
+    <string name="mcp_listen_hint">Listening on 127.0.0.1:%1$s for AI clients to read and control the core</string>
+    <string name="mcp_endpoint">Port and access token</string>
+    <string name="mcp_endpoint_summary">Port %1$s · token set</string>
+    <string name="mcp_endpoint_summary_no_token">Port %1$s · no token</string>
+    <string name="mcp_port">Port</string>
+    <string name="mcp_token">Access token (leave empty to disable auth)</string>
 </resources>

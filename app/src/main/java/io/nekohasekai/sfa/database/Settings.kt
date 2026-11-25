@@ -101,6 +101,10 @@ object Settings {
     var ssidModeEnabled by dataStore.boolean(SettingsKey.SSID_MODE_ENABLED) { false }
     var ssidModeList by dataStore.string(SettingsKey.SSID_MODE_LIST) { "" }
     var ssidModeDnsEnabled by dataStore.boolean(SettingsKey.SSID_MODE_DNS_ENABLED) { true }
+
+    var mcpServerEnabled by dataStore.boolean(SettingsKey.MCP_SERVER_ENABLED) { false }
+    var mcpServerPort by dataStore.int(SettingsKey.MCP_SERVER_PORT) { 18080 }
+    var mcpServerToken by dataStore.string(SettingsKey.MCP_SERVER_TOKEN) { "" }
     var systemProxyEnabled by dataStore.boolean(SettingsKey.SYSTEM_PROXY_ENABLED) { true }
 
     var privilegeSettingsEnabled by dataStore.boolean(SettingsKey.PRIVILEGE_SETTINGS_ENABLED) { false }

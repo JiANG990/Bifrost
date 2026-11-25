@@ -104,6 +104,7 @@ import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.mcp.McpServer
 import io.nekohasekai.sfa.ktx.clipboardText
 import io.nekohasekai.sfa.update.UpdateCheckException
 import io.nekohasekai.sfa.update.UpdateSource
@@ -182,6 +183,11 @@ fun AppSettingsScreen(
         val appLocales = AppCompatDelegate.getApplicationLocales()
         mutableStateOf(if (appLocales.isEmpty) "" else appLocales.toLanguageTags())
     }
+
+    var mcpEnabled by remember { mutableStateOf(Settings.mcpServerEnabled) }
+    var mcpPort by remember { mutableStateOf(Settings.mcpServerPort.toString()) }
+    var mcpToken by remember { mutableStateOf(Settings.mcpServerToken) }
+    var showMcpDialog by remember { mutableStateOf(false) }
 
     var cacheSize by remember { mutableStateOf(0L) }
     var cacheSizeText by remember { mutableStateOf("") }
@@ -1184,6 +1190,138 @@ fun AppSettingsScreen(
                     )
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // MCP Section
+        Text(
+            text = stringResource(R.string.mcp_server_title),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
+        )
+
+        Card(
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            ),
+        ) {
+            Column {
+                ListItem(
+                    headlineContent = {
+                        Text(stringResource(R.string.mcp_enable), style = MaterialTheme.typography.bodyLarge)
+                    },
+                    supportingContent = {
+                        Text(
+                            stringResource(R.string.mcp_listen_hint, mcpPort),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    },
+                    leadingContent = {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = mcpEnabled,
+                            onCheckedChange = { checked ->
+                                mcpEnabled = checked
+                                scope.launch {
+                                    Settings.mcpServerEnabled = checked
+                                    withContext(Dispatchers.Main) {
+                                        if (checked) McpServer.start() else McpServer.stop()
+                                    }
+                                }
+                            },
+                        )
+                    },
+                    colors =
+                    ListItemDefaults.colors(
+                        containerColor = Color.Transparent,
+                    ),
+                )
+                ListItem(
+                    headlineContent = {
+                        Text(stringResource(R.string.mcp_endpoint), style = MaterialTheme.typography.bodyLarge)
+                    },
+                    supportingContent = {
+                        Text(
+                            if (mcpToken.isBlank()) stringResource(R.string.mcp_endpoint_summary_no_token, mcpPort) else stringResource(R.string.mcp_endpoint_summary, mcpPort),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    },
+                    leadingContent = {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                    modifier = Modifier.clickable { showMcpDialog = true },
+                    colors =
+                    ListItemDefaults.colors(
+                        containerColor = Color.Transparent,
+                    ),
+                )
+            }
+        }
+
+        if (showMcpDialog) {
+            var portText by remember { mutableStateOf(mcpPort) }
+            var tokenText by remember { mutableStateOf(mcpToken) }
+            AlertDialog(
+                onDismissRequest = { showMcpDialog = false },
+                title = { Text(stringResource(R.string.mcp_server_title)) },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = portText,
+                            onValueChange = { value -> portText = value.filter { it.isDigit() } },
+                            label = { Text(stringResource(R.string.mcp_port)) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = tokenText,
+                            onValueChange = { tokenText = it },
+                            label = { Text(stringResource(R.string.mcp_token)) },
+                            singleLine = true,
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val port = portText.toIntOrNull()
+                        if (port != null && port in 1024..65535) {
+                            mcpPort = portText
+                            mcpToken = tokenText
+                            scope.launch {
+                                Settings.mcpServerPort = port
+                                Settings.mcpServerToken = tokenText
+                                withContext(Dispatchers.Main) { McpServer.restart() }
+                            }
+                        }
+                        showMcpDialog = false
+                    }) {
+                        Text(stringResource(android.R.string.ok))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showMcpDialog = false }) {
+                        Text(stringResource(android.R.string.cancel))
+                    }
+                },
+            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))

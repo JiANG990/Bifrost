@@ -746,4 +746,12 @@
     <string name="ssid_mode_direct">直连</string>
     <string name="ssid_mode_saved">已保存，重连 VPN 或切换 Wi-Fi 后生效。</string>
     <string name="ssid_mode_inject_failed">配置注入失败</string>
+    <string name="mcp_server_title">MCP 服务器</string>
+    <string name="mcp_enable">启用 MCP 服务器</string>
+    <string name="mcp_listen_hint">监听 127.0.0.1:%1$s，供 AI 读取与控制系统</string>
+    <string name="mcp_endpoint">端口与访问令牌</string>
+    <string name="mcp_endpoint_summary">端口 %1$s · 已设置令牌</string>
+    <string name="mcp_endpoint_summary_no_token">端口 %1$s · 未设置令牌</string>
+    <string name="mcp_port">端口</string>
+    <string name="mcp_token">访问令牌（留空则不校验）</string>
 </resources>

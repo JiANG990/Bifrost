@@ -749,4 +749,12 @@
     <string name="ssid_mode_direct">直連</string>
     <string name="ssid_mode_saved">已儲存，重新連線 VPN 或切換 Wi-Fi 後生效。</string>
     <string name="ssid_mode_inject_failed">配置注入失敗</string>
+    <string name="mcp_server_title">MCP 伺服器</string>
+    <string name="mcp_enable">啟用 MCP 伺服器</string>
+    <string name="mcp_listen_hint">監聽 127.0.0.1:%1$s，供 AI 讀取與控制系統</string>
+    <string name="mcp_endpoint">連接埠與存取權杖</string>
+    <string name="mcp_endpoint_summary">連接埠 %1$s · 已設定權杖</string>
+    <string name="mcp_endpoint_summary_no_token">連接埠 %1$s · 未設定權杖</string>
+    <string name="mcp_port">連接埠</string>
+    <string name="mcp_token">存取權杖（留空則不驗證）</string>
 </resources>

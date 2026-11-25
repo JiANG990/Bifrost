@@ -30,6 +30,10 @@ object SettingsKey {
     const val SSID_MODE_DNS_ENABLED = "ssid_mode_dns_enabled"
     const val SYSTEM_PROXY_ENABLED = "system_proxy_enabled"
 
+    const val MCP_SERVER_ENABLED = "mcp_server_enabled"
+    const val MCP_SERVER_PORT = "mcp_server_port"
+    const val MCP_SERVER_TOKEN = "mcp_server_token"
+
     const val PRIVILEGE_SETTINGS_ENABLED = "hide_settings_enabled"
     const val PRIVILEGE_SETTINGS_LIST = "hide_settings_list"
     const val PRIVILEGE_SETTINGS_INTERFACE_RENAME_ENABLED = "hide_settings_interface_rename_enabled"
