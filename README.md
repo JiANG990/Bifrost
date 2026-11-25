@@ -1,9 +1,9 @@
-# SFA · Wi-Fi 出站模式
+# Bifrost · Wi-Fi 出站模式
 
-> 一个专注于「按 Wi-Fi 自动切换出站模式」的 [sing-box for Android](https://github.com/SagerNet/sing-box-for-android) 分支。
+> Bifrost（彩虹桥）—— 基于 [sing-box](https://github.com/SagerNet/sing-box) 开发的 Android 客户端，专注于「按 Wi-Fi 自动切换出站模式与 DNS」。
 > 在家直连、出门走代理，不用每天手动点开关。
 
-[![Build](https://github.com/JiANG990/sing-box-for-android/actions/workflows/ssid-build.yaml/badge.svg)](https://github.com/JiANG990/sing-box-for-android/actions/workflows/ssid-build.yaml)
+[![Build](https://github.com/JiANG990/Bifrost/actions/workflows/ssid-build.yaml/badge.svg)](https://github.com/JiANG990/Bifrost/actions/workflows/ssid-build.yaml)
 
 ## 为什么
 
@@ -25,7 +25,7 @@
 
 ## 安装
 
-从 [Releases](https://github.com/JiANG990/sing-box-for-android/releases) 下载 `arm64-v8a` APK。
+从 [Releases](https://github.com/JiANG990/Bifrost/releases) 下载 `arm64-v8a` APK。
 
 > 本分支使用独立签名，与官方 SFA 不兼容：安装前请先导出配置并卸载官方版，否则会提示签名冲突。卸载会清空 App 数据。
 
@@ -134,7 +134,7 @@
 推送 `main` 后手动触发，或每天 04:00（Asia/Shanghai）自动检查上游：
 
 ```
-gh workflow run ssid-build.yaml -R JiANG990/sing-box-for-android -f sb_tag=v1.15.0-alpha.13
+gh workflow run ssid-build.yaml -R JiANG990/Bifrost -f sb_tag=v1.15.0-alpha.13
 ```
 
 Release 使用固定签名。构建前需在仓库 **Settings → Secrets and variables → Actions** 中配置：

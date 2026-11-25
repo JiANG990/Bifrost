@@ -14,7 +14,7 @@ import java.io.Closeable
 
 class GitHubUpdateChecker : Closeable {
     companion object {
-        private const val RELEASES_URL = "https://api.github.com/repos/JiANG990/sing-box-for-android/releases"
+        private const val RELEASES_URL = "https://api.github.com/repos/JiANG990/Bifrost/releases"
         private const val METADATA_FILENAME = "SFA-version-metadata.json"
     }
 

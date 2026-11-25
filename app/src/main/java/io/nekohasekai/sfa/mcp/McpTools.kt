@@ -20,7 +20,7 @@ import java.util.Locale
 object McpTools {
 
     private const val PROTOCOL_VERSION = "2024-11-05"
-    private const val SERVER_NAME = "sing-box-for-android"
+    private const val SERVER_NAME = "Bifrost"
     private const val SERVER_VERSION = "1.0.0"
 
     fun health(): String = JSONObject()
