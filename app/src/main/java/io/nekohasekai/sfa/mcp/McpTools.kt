@@ -369,7 +369,9 @@ object McpTools {
         val cm = app.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
             as? android.net.ConnectivityManager
         val transports = JSONArray()
-        var primary: android.net.Network? = null
+        var wifiNetwork: android.net.Network? = null
+        var ethernetNetwork: android.net.Network? = null
+        var cellularNetwork: android.net.Network? = null
         var primaryCaps: android.net.NetworkCapabilities? = null
         var vpnActive = false
         val seen = HashSet<String>()
@@ -388,13 +390,26 @@ object McpTools {
                         else -> null
                     } ?: continue
                     if (seen.add(type)) transports.put(type)
-                    if (primary == null) {
-                        primary = network
-                        primaryCaps = caps
+                    when (type) {
+                        "wifi" -> wifiNetwork = network
+                        "ethernet" -> ethernetNetwork = network
+                        "cellular" -> cellularNetwork = network
                     }
                 }
             }
         }
+        // allNetworks has no meaningful order: pick by priority instead of "first seen",
+        // otherwise a phone on Wi-Fi with mobile data on reports cellular. A Wi-Fi entry
+        // can also linger after the link drops, so require a real association.
+        @Suppress("DEPRECATION")
+        val wifiAssociated = runCatching {
+            val wm = app.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE)
+                as? android.net.wifi.WifiManager
+            wm != null && wm.isWifiEnabled && (wm.connectionInfo?.networkId ?: -1) >= 0
+        }.getOrDefault(false)
+        val primary: android.net.Network? =
+            (if (wifiAssociated) wifiNetwork else null) ?: ethernetNetwork ?: cellularNetwork
+        if (cm != null && primary != null) primaryCaps = cm.getNetworkCapabilities(primary)
         val onWifi = primaryCaps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
         val ssid = if (!onWifi) {
             null
@@ -415,8 +430,11 @@ object McpTools {
                 val lp = cm.getLinkProperties(network) ?: return@runCatching
                 lp.dnsServers.forEach { dnsServers.put(it.hostAddress ?: "") }
                 for (route in lp.routes) {
+                    if (!route.isDefaultRoute) continue
                     val gw = route.gateway ?: continue
-                    if (route.isDefaultRoute) gw.hostAddress?.let { gateway.add(it) }
+                    val addr = gw.hostAddress ?: continue
+                    // IPv4 first: a v6 link-local gateway is not useful to the caller.
+                    if (gw is java.net.Inet4Address) gateway.add(0, addr) else gateway.add(addr)
                 }
             }
         }
