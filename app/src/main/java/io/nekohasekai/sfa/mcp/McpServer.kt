@@ -50,7 +50,8 @@ object McpServer {
         }
         val port = Settings.mcpServerPort.takeIf { it in 1024..65535 } ?: DEFAULT_PORT
         val socket = try {
-            ServerSocket(port, 8, InetAddress.getByName("127.0.0.1"))
+            val host = if (Settings.mcpServerAllowLan) "0.0.0.0" else "127.0.0.1"
+            ServerSocket(port, 16, InetAddress.getByName(host))
         } catch (e: Exception) {
             Log.e(TAG, "Cannot bind 127.0.0.1:$port", e)
             return

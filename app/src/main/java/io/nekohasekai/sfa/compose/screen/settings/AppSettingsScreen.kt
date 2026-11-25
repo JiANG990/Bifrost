@@ -185,6 +185,7 @@ fun AppSettingsScreen(
     }
 
     var mcpEnabled by remember { mutableStateOf(Settings.mcpServerEnabled) }
+    var mcpAllowLan by remember { mutableStateOf(Settings.mcpServerAllowLan) }
     var mcpPort by remember { mutableStateOf(Settings.mcpServerPort.toString()) }
     var mcpToken by remember { mutableStateOf(Settings.mcpServerToken) }
     var showMcpDialog by remember { mutableStateOf(false) }
@@ -1239,6 +1240,42 @@ fun AppSettingsScreen(
                                     Settings.mcpServerEnabled = checked
                                     withContext(Dispatchers.Main) {
                                         if (checked) McpServer.start() else McpServer.stop()
+                                    }
+                                }
+                            },
+                        )
+                    },
+                    colors =
+                    ListItemDefaults.colors(
+                        containerColor = Color.Transparent,
+                    ),
+                )
+                ListItem(
+                    headlineContent = {
+                        Text(stringResource(R.string.mcp_allow_lan), style = MaterialTheme.typography.bodyLarge)
+                    },
+                    supportingContent = {
+                        Text(
+                            stringResource(R.string.mcp_allow_lan_summary),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    },
+                    leadingContent = {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = mcpAllowLan,
+                            onCheckedChange = { checked ->
+                                mcpAllowLan = checked
+                                scope.launch {
+                                    Settings.mcpServerAllowLan = checked
+                                    withContext(Dispatchers.Main) {
+                                        if (Settings.mcpServerEnabled) McpServer.restart()
                                     }
                                 }
                             },

@@ -754,4 +754,6 @@
     <string name="mcp_endpoint_summary_no_token">端口 %1$s · 未设置令牌</string>
     <string name="mcp_port">端口</string>
     <string name="mcp_token">访问令牌（留空则不校验）</string>
+    <string name="mcp_allow_lan">允许局域网访问</string>
+    <string name="mcp_allow_lan_summary">监听 0.0.0.0，同一网络下的其他设备可连接</string>
 </resources>

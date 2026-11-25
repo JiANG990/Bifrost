@@ -105,6 +105,7 @@ object Settings {
     var mcpServerEnabled by dataStore.boolean(SettingsKey.MCP_SERVER_ENABLED) { false }
     var mcpServerPort by dataStore.int(SettingsKey.MCP_SERVER_PORT) { 18080 }
     var mcpServerToken by dataStore.string(SettingsKey.MCP_SERVER_TOKEN) { "" }
+    var mcpServerAllowLan by dataStore.boolean(SettingsKey.MCP_SERVER_ALLOW_LAN) { false }
     var systemProxyEnabled by dataStore.boolean(SettingsKey.SYSTEM_PROXY_ENABLED) { true }
 
     var privilegeSettingsEnabled by dataStore.boolean(SettingsKey.PRIVILEGE_SETTINGS_ENABLED) { false }

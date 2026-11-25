@@ -33,6 +33,7 @@ object SettingsKey {
     const val MCP_SERVER_ENABLED = "mcp_server_enabled"
     const val MCP_SERVER_PORT = "mcp_server_port"
     const val MCP_SERVER_TOKEN = "mcp_server_token"
+    const val MCP_SERVER_ALLOW_LAN = "mcp_server_allow_lan"
 
     const val PRIVILEGE_SETTINGS_ENABLED = "hide_settings_enabled"
     const val PRIVILEGE_SETTINGS_LIST = "hide_settings_list"

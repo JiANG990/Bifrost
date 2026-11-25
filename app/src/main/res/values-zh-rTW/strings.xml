@@ -757,4 +757,6 @@
     <string name="mcp_endpoint_summary_no_token">連接埠 %1$s · 未設定權杖</string>
     <string name="mcp_port">連接埠</string>
     <string name="mcp_token">存取權杖（留空則不驗證）</string>
+    <string name="mcp_allow_lan">允許區域網路存取</string>
+    <string name="mcp_allow_lan_summary">監聽 0.0.0.0，同一網路下的其他裝置可連線</string>
 </resources>
