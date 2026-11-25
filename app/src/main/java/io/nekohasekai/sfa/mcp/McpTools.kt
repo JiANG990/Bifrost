@@ -5,7 +5,6 @@ import io.nekohasekai.libbox.LogEntry
 import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
-import io.nekohasekai.sfa.ktx.toList
 import io.nekohasekai.sfa.utils.CommandTarget
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
@@ -170,19 +169,18 @@ object McpTools {
     private fun logs(args: JSONObject): JSONObject {
         val limit = args.optInt("limit", 100).coerceIn(1, 500)
         val minLevel = when (args.optString("level").lowercase()) {
-            "debug" -> LogEntry.LEVEL_DEBUG
-            "warn", "warning" -> LogEntry.LEVEL_WARN
-            "error" -> LogEntry.LEVEL_ERROR
-            else -> LogEntry.LEVEL_INFO
+            "trace" -> 6
+            "debug" -> 5
+            "warn", "warning" -> 3
+            "error" -> 2
+            "fatal" -> 1
+            else -> 4
         }
-        val format = SimpleDateFormat("HH:mm:ss", Locale.US)
         val items = JSONArray()
         for (entry in McpState.snapshotLogs(limit, minLevel)) {
             items.put(
                 JSONObject()
-                    .put("time", format.format(Date(entry.timestamp)))
                     .put("level", entry.level)
-                    .put("source", entry.source)
                     .put("message", entry.message),
             )
         }

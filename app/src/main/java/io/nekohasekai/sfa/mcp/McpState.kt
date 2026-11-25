@@ -78,12 +78,12 @@ object McpState : CommandClient.Handler {
         synchronized(connectionsLock) { connectionStore = null }
     }
 
-    fun clearLogs() {
+    override fun clearLogs() {
         synchronized(logsLock) { logs.clear() }
     }
 
     fun snapshotLogs(limit: Int, minLevel: Int): List<LogEntry> = synchronized(logsLock) {
-        logs.asSequence().filter { it.level >= minLevel }.toList().takeLast(limit)
+        logs.asSequence().filter { it.level <= minLevel }.toList().takeLast(limit)
     }
 
     fun snapshotConnections(): List<Connection> = synchronized(connectionsLock) {
