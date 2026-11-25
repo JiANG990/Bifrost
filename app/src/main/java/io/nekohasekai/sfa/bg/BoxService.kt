@@ -74,6 +74,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 ),
             )
         }
+
+        @Volatile
+        private var instance: BoxService? = null
+
+        /** Reloads the running core, e.g. after a profile was edited over MCP. */
+        fun launchReload() {
+            instance?.serviceReload()
+        }
     }
 
     var fileDescriptor: ParcelFileDescriptor? = null
@@ -372,6 +380,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @OptIn(DelicateCoroutinesApi::class)
     @Suppress("SameReturnValue")
     internal fun onStartCommand(): Int {
+        instance = this
         if (status.value != Status.Stopped) return Service.START_NOT_STICKY
         status.value = Status.Starting
         notification.show(lastProfileName, R.string.status_starting)
@@ -409,6 +418,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     @OptIn(DelicateCoroutinesApi::class)
     internal fun onDestroy() {
+        instance = null
         idleModeUpdates.cancel()
         idleModeScope.cancel()
         GlobalScope.launch(Dispatchers.IO) { runCatching { DefaultNetworkMonitor.stop() } }

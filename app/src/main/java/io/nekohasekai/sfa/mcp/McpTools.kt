@@ -336,7 +336,7 @@ object McpTools {
         file.writeText(content)
         var reloaded = false
         if (args.optBoolean("reload", true) && McpState.connected) {
-            BoxService.serviceReload()
+            BoxService.launchReload()
             reloaded = true
         }
         return JSONObject()
@@ -357,7 +357,7 @@ object McpTools {
             .put("brand", android.os.Build.BRAND)
             .put("model", android.os.Build.MODEL)
             .put("coreVersion", Libbox.version())
-            .put("service", BoxService.status.value.toString())
+            .put("connected", McpState.connected)
             .put("mcpPort", Settings.mcpServerPort)
             .put("mcpAllowLan", Settings.mcpServerAllowLan)
             .put("mcpTokenSet", Settings.mcpServerToken.isNotBlank())
