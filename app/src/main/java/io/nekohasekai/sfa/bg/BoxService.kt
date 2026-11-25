@@ -214,7 +214,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
             status.postValue(Status.Started)
             // The core is up only now, so a client created at app start has to reconnect.
-            runCatching { McpState.start() }
+            runCatching { McpState.restart() }
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_started)
             }
@@ -286,7 +286,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     }
                 },
             )
-            runCatching { McpState.start() }
+            runCatching { McpState.restart() }
         } catch (e: Exception) {
             stopAndAlert(Alert.CreateService, e.message)
         }

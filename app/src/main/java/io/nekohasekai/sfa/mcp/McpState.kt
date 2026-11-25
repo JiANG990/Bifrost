@@ -105,6 +105,20 @@ object McpState : CommandClient.Handler {
         created.connect()
     }
 
+    /**
+     * Drop the current command client and attach a fresh one. A service reload replaces
+     * the core process without always emitting a disconnected() callback, so the old
+     * client keeps "looking" connected while its event stream is dead — subscriptions
+     * to logs and connections silently stop. Callers that restart the core must go
+     * through here instead of start().
+     */
+    @Synchronized
+    fun restart() {
+        runCatching { client?.disconnect() }
+        client = null
+        start()
+    }
+
     @Synchronized
     fun stop() {
         runCatching { client?.disconnect() }
