@@ -120,9 +120,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="ssid-$SB_TAG"
           VER=$(grep '^VERSION_NAME=' version.properties | cut -d= -f2)
-          VCODE=$(grep '^VERSION_CODE=' version.properties | cut -d= -f2)
+          VCODE=$(echo "$VER" | awk -F. '{printf "%d", $1*10000000 + $2*10000 + $3}')
+          TAG="v${VER}"
           BUNDLE="Bifrost-${VER}-arm64-v8a.apk"
           APK=$(find app/build/outputs/apk/other/release -name '*arm64-v8a*.apk' | head -1)
           [ -n "$APK" ] || APK=$(find app/build/outputs/apk/other/release -name '*.apk' | head -1)

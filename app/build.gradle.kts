@@ -75,8 +75,14 @@ android {
         applicationId = "io.github.jiang990.bifrost"
         minSdk = 24
         targetSdk = 37
-        versionCode = getVersionProps("VERSION_CODE").toInt()
-        versionName = getVersionProps("VERSION_NAME")
+        // 主版本.上游(major*100+minor).本分支补丁 -> code = major*10^7 + mid*10^4 + patch
+        val appVersionName = getVersionProps("VERSION_NAME")
+        versionName = appVersionName
+        versionCode = appVersionName.split(".").let { p ->
+            (p.getOrNull(0)?.toIntOrNull() ?: 0) * 10_000_000 +
+                (p.getOrNull(1)?.toIntOrNull() ?: 0) * 10_000 +
+                (p.getOrNull(2)?.toIntOrNull() ?: 0)
+        }
         base.archivesName.set("Bifrost-${versionName}")
     }
 
