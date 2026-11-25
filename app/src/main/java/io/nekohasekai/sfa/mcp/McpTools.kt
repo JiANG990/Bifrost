@@ -93,6 +93,8 @@ object McpTools {
         "runtime_config" -> runtimeConfig(args)
         "update_profile" -> updateProfile(args)
         "device" -> device()
+        "dns_query" -> dnsQuery(args)
+        "probe" -> probe(args)
         "select_outbound" -> selectOutbound(args)
         "close_connection" -> closeConnection(args)
         "close_all_connections" -> closeAllConnections()
@@ -361,6 +363,46 @@ object McpTools {
             .put("mcpTokenSet", Settings.mcpServerToken.isNotBlank())
     }
 
+    private fun dnsQuery(args: JSONObject): JSONObject {
+        val name = args.optString("name").trim()
+        require(name.isNotEmpty()) { "name is required" }
+        val started = System.currentTimeMillis()
+        val addresses = ArrayList<String>()
+        var error: String? = null
+        try {
+            for (address in java.net.InetAddress.getAllByName(name)) {
+                address.hostAddress?.let { addresses.add(it) }
+            }
+        } catch (e: Exception) {
+            error = e.message ?: e.javaClass.simpleName
+        }
+        return JSONObject()
+            .put("name", name)
+            .put("ok", addresses.isNotEmpty())
+            .put("addresses", JSONArray(addresses))
+            .put("ms", System.currentTimeMillis() - started)
+            .put("error", error ?: JSONObject.NULL)
+    }
+
+    private fun probe(args: JSONObject): JSONObject {
+        val host = args.optString("host").trim()
+        require(host.isNotEmpty()) { "host is required" }
+        val port = args.optInt("port", 443).coerceIn(1, 65535)
+        val timeout = args.optInt("timeoutMs", 3000).coerceIn(200, 15000)
+        val started = System.currentTimeMillis()
+        return try {
+            java.net.Socket().use { socket ->
+                socket.connect(java.net.InetSocketAddress(host, port), timeout)
+            }
+            JSONObject().put("ok", true).put("host", host).put("port", port)
+                .put("ms", System.currentTimeMillis() - started)
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("host", host).put("port", port)
+                .put("ms", System.currentTimeMillis() - started)
+                .put("error", e.message ?: e.javaClass.simpleName)
+        }
+    }
+
     // ---- schema -----------------------------------------------------------
 
     private fun schema(vararg required: String): JSONObject = JSONObject()
@@ -443,6 +485,23 @@ object McpTools {
             ),
         )
         .put(tool("device", "App, device, core and MCP server facts.", schema()))
+        .put(
+            tool(
+                "dns_query",
+                "Resolve a name with the device resolver and report addresses and latency.",
+                schema("name").let { param(it, "name", "string", "Hostname, e.g. www.google.com") },
+            ),
+        )
+        .put(
+            tool(
+                "probe",
+                "Open a TCP connection to host:port and report latency or the error.",
+                schema("host")
+                    .let { param(it, "host", "string", "Hostname or IP") }
+                    .let { param(it, "port", "integer", "TCP port.", 443) }
+                    .let { param(it, "timeoutMs", "integer", "Connect timeout in ms.", 3000) },
+            ),
+        )
         .put(
             tool(
                 "select_outbound",

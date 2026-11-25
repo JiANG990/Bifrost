@@ -103,6 +103,7 @@
 | `runtime_config` | 实际交给内核的配置（含 SSID 与网关 DNS 注入） |
 | `update_profile` | 写入配置内容、校验 JSON，可选立即重载内核 |
 | `device` | 应用、设备、内核与 MCP 服务信息 |
+| `dns_query` / `probe` | 解析域名（返回地址与耗时）/ 测试 TCP 连通与延迟 |
 | `select_outbound` | 在组内切换节点 |
 | `close_connection` / `close_all_connections` | 关闭连接 |
 | `set_clash_mode` | 切换 rule / global / direct |
