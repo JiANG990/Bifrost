@@ -320,7 +320,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
      */
     private fun registerNetworkReload() {
         if (networkReloadCallback != null) return
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        val cm = service.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
         val request = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
@@ -351,7 +351,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         val callback = networkReloadCallback ?: return
         networkReloadCallback = null
         runCatching {
-            (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
+            (service.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
                 ?.unregisterNetworkCallback(callback)
         }
     }
