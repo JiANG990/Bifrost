@@ -354,10 +354,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private fun registerNetworkReload() {
         if (networkReloadCallback != null) return
         val cm = service.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        // addTransportType() calls are ANDed, so asking for Wi-Fi + cellular at once matches
+        // no network at all and the callback never fires. Register for any internet-capable
+        // network instead; physicalNetworkKey() already ignores the VPN transport.
         val request = NetworkRequest.Builder()
-            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
-            .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
             private var scheduled = false
