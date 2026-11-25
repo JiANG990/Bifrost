@@ -88,6 +88,10 @@ object McpTools {
         "outbounds" -> outbounds()
         "connections" -> connections(args)
         "logs" -> logs(args)
+        "reload" -> reload()
+        "current_network" -> currentNetwork()
+        "rollback_profile" -> rollbackProfile(args)
+        "diagnose" -> diagnose(args)
         "profiles" -> profiles()
         "get_profile" -> getProfile(args)
         "runtime_config" -> runtimeConfig(args)
@@ -175,7 +179,8 @@ object McpTools {
     }
 
     private fun logs(args: JSONObject): JSONObject {
-        val limit = args.optInt("limit", 100).coerceIn(1, 500)
+        val limit = args.optInt("limit", 100).coerceIn(1, 1000)
+        val since = args.optLong("since", 0L)
         val minLevel = when (args.optString("level").lowercase()) {
             "trace" -> 6
             "debug" -> 5
@@ -187,16 +192,19 @@ object McpTools {
         val grep = args.optString("grep").trim()
         val items = JSONArray()
         var seen = 0
-        val snapshot = McpState.snapshotLogs(500, minLevel)
+        val snapshot = McpState.snapshotLogs(3000, minLevel, since)
         for (entry in snapshot.asReversed()) {
             if (grep.isNotEmpty() && !entry.message.contains(grep, ignoreCase = true)) continue
-            items.put(JSONObject().put("level", entry.level).put("message", entry.message))
+            items.put(JSONObject().put("seq", entry.seq).put("level", entry.level).put("message", entry.message))
             seen++
             if (seen >= limit) break
         }
         val ordered = JSONArray()
         for (i in items.length() - 1 downTo 0) ordered.put(items.get(i))
-        return JSONObject().put("count", ordered.length()).put("items", ordered)
+        return JSONObject()
+            .put("count", ordered.length())
+            .put("cursor", McpState.lastLogSeq())
+            .put("items", ordered)
     }
 
     private fun profiles(): JSONObject {
@@ -335,6 +343,7 @@ object McpTools {
         // Parse before writing so a malformed config never replaces a working one.
         org.json.JSONObject(content)
         val file = File(path)
+        if (file.isFile) runCatching { file.copyTo(File("$path.bak"), overwrite = true) }
         file.writeText(content)
         var reloaded = false
         if (args.optBoolean("reload", true) && McpState.connected) {
@@ -347,6 +356,135 @@ object McpTools {
             .put("path", path)
             .put("size", content.length)
             .put("reloaded", reloaded)
+    }
+
+    private fun reload(): JSONObject {
+        BoxService.launchReload()
+        return JSONObject().put("ok", true).put("reloaded", true)
+    }
+
+    private fun currentNetwork(): JSONObject {
+        val app = io.nekohasekai.sfa.Application.application
+        val cm = app.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager
+        val network = cm?.activeNetwork
+        val caps = if (cm != null && network != null) cm.getNetworkCapabilities(network) else null
+        val transports = JSONArray()
+        if (caps != null) {
+            if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) transports.put("wifi")
+            if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)) transports.put("cellular")
+            if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) transports.put("ethernet")
+            if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) transports.put("vpn")
+        }
+        val onWifi = caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
+        val ssid = if (!onWifi) {
+            null
+        } else {
+            runCatching {
+                val wifi = app.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE)
+                    as? android.net.wifi.WifiManager
+                @Suppress("DEPRECATION")
+                val raw = wifi?.connectionInfo?.ssid?.trim('"')
+                raw
+            }.getOrNull()?.takeUnless { it.isEmpty() || it == "<unknown ssid>" }
+        }
+        val dnsServers = JSONArray()
+        val gateway = ArrayList<String>()
+        if (cm != null && network != null) {
+            runCatching {
+                val lp = cm.getLinkProperties(network) ?: return@runCatching
+                lp.dnsServers.forEach { dnsServers.put(it.hostAddress ?: "") }
+                for (route in lp.routes) {
+                    if (route.isDefaultRoute && route.gateway != null) {
+                        route.gateway?.hostAddress?.let { gateway.add(it) }
+                    }
+                }
+            }
+        }
+        return JSONObject()
+            .put("transports", transports)
+            .put("wifi", onWifi)
+            .put("cellular", caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true)
+            .put("vpnActive", caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true)
+            .put("ssid", ssid ?: JSONObject.NULL)
+            .put("dnsServers", dnsServers)
+            .put("gateway", JSONArray(gateway.distinct()))
+            .put("ssidModeEnabled", Settings.ssidModeEnabled)
+            .put("ssidModeDnsEnabled", Settings.ssidModeDnsEnabled)
+    }
+
+    private fun rollbackProfile(args: JSONObject): JSONObject {
+        val id = args.optLong("id", -1L)
+        require(id > 0) { "id is required" }
+        val profile = runBlocking { ProfileManager.get(id) }
+            ?: throw IllegalArgumentException("profile not found: $id")
+        val path = profile.typed.path
+        require(!path.contains("..") && File(path).isAbsolute) { "profile path is not allowed" }
+        val backup = File("$path.bak")
+        require(backup.isFile) { "no backup for profile $id" }
+        val content = backup.readText()
+        org.json.JSONObject(content)
+        File(path).writeText(content)
+        var reloaded = false
+        if (args.optBoolean("reload", true)) {
+            BoxService.launchReload()
+            reloaded = true
+        }
+        return JSONObject().put("ok", true).put("id", id).put("size", content.length).put("reloaded", reloaded)
+    }
+
+    private fun diagnose(args: JSONObject): JSONObject {
+        val hosts = args.optJSONArray("hosts")
+        val names = if (hosts == null || hosts.length() == 0) {
+            arrayOf("www.baidu.com", "www.google.com")
+        } else {
+            Array(hosts.length()) { hosts.getString(it) }
+        }
+        val results = JSONArray()
+        for (name in names) {
+            val started = System.currentTimeMillis()
+            val addresses = JSONArray()
+            var error: String? = null
+            try {
+                for (address in java.net.InetAddress.getAllByName(name)) {
+                    address.hostAddress?.let { addresses.put(it) }
+                }
+            } catch (e: Exception) {
+                error = e.message ?: e.javaClass.simpleName
+            }
+            results.put(
+                JSONObject()
+                    .put("name", name)
+                    .put("ok", error == null)
+                    .put("addresses", addresses)
+                    .put("ms", System.currentTimeMillis() - started)
+                    .put("error", error ?: JSONObject.NULL),
+            )
+        }
+        val errors = JSONArray()
+        for (entry in McpState.snapshotLogs(40, 3).asReversed()) {
+            errors.put(JSONObject().put("seq", entry.seq).put("level", entry.level).put("message", entry.message))
+        }
+        var dnsFinal: Any = JSONObject.NULL
+        var dnsServerTags = JSONArray()
+        runCatching {
+            val runtime = org.json.JSONObject(McpState.runtimeConfig ?: "{}")
+            val dns = runtime.optJSONObject("dns")
+            if (dns != null) {
+                dnsFinal = dns.optString("final", "")
+                val servers = dns.optJSONArray("servers") ?: JSONArray()
+                for (i in 0 until servers.length()) {
+                    servers.optJSONObject(i)?.optString("tag")?.let { dnsServerTags.put(it) }
+                }
+            }
+        }
+        return JSONObject()
+            .put("status", status())
+            .put("network", currentNetwork())
+            .put("dnsFinal", dnsFinal)
+            .put("dnsServerTags", dnsServerTags)
+            .put("resolved", results)
+            .put("recentWarnings", errors)
     }
 
     private fun device(): JSONObject {
@@ -496,7 +634,8 @@ object McpTools {
                 schema()
                     .let { param(it, "limit", "integer", "Maximum lines (1-500).", 100) }
                     .let { param(it, "level", "string", "Minimum level: debug, info, warn, error.", "info") }
-                    .let { param(it, "grep", "string", "Only return lines containing this text (case-insensitive).") },
+                    .let { param(it, "grep", "string", "Only return lines containing this text (case-insensitive).") }
+                    .let { param(it, "since", "integer", "Only return lines with a seq greater than this cursor.") },
             ),
         )
         .put(tool("profiles", "Configuration profiles with type, subscription URL and which one is selected.", schema()))
@@ -524,6 +663,31 @@ object McpTools {
                     .let { param(it, "id", "integer", "Profile id from the profiles tool.") }
                     .let { param(it, "content", "string", "Full JSON config text.") }
                     .let { param(it, "reload", "boolean", "Reload the core after writing.", true) },
+            ),
+        )
+        .put(tool("reload", "Reload the running core with the current profile.", schema()))
+        .put(
+            tool(
+                "current_network",
+                "The physical network right now: transports, SSID, VPN state, gateway and system DNS.",
+                schema(),
+            ),
+        )
+        .put(
+            tool(
+                "rollback_profile",
+                "Restore the backup written before the last update_profile call.",
+                schema("id")
+                    .let { param(it, "id", "integer", "Profile id") }
+                    .let { param(it, "reload", "boolean", "Reload the core after restoring.", true) },
+            ),
+        )
+        .put(
+            tool(
+                "diagnose",
+                "One-shot report: core status, current network, DNS final/tags, name resolution timings and recent warnings.",
+                schema()
+                    .let { param(it, "hosts", "array", "Names to resolve; defaults to www.baidu.com and www.google.com.") },
             ),
         )
         .put(tool("device", "App, device, core and MCP server facts.", schema()))

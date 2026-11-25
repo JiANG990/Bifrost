@@ -27,7 +27,7 @@ object McpState : CommandClient.Handler {
         val items: List<ItemSnapshot>,
     )
 
-    private const val MAX_LOGS = 500
+    private const val MAX_LOGS = 3000
 
     /** Config actually handed to the core, including the SSID/DNS injection. */
     @Volatile
@@ -66,7 +66,11 @@ object McpState : CommandClient.Handler {
      */
     val connected: Boolean get() = status != null
 
-    private val logs = ArrayDeque<LogEntry>()
+    /** One buffered log line. The seq is monotonic so clients can ask for what is new. */
+    data class LogLine(val seq: Long, val level: Int, val message: String)
+
+    private val logs = ArrayDeque<LogLine>()
+    private var logSeq = 0L
     private val logsLock = Any()
 
     private var connectionStore: Connections? = null
@@ -117,9 +121,14 @@ object McpState : CommandClient.Handler {
         synchronized(logsLock) { logs.clear() }
     }
 
-    fun snapshotLogs(limit: Int, minLevel: Int): List<LogEntry> = synchronized(logsLock) {
-        logs.asSequence().filter { it.level <= minLevel }.toList().takeLast(limit)
+    fun snapshotLogs(limit: Int, minLevel: Int, since: Long = 0L): List<LogLine> = synchronized(logsLock) {
+        logs.asSequence()
+            .filter { it.seq > since && it.level <= minLevel }
+            .toList()
+            .takeLast(limit)
     }
+
+    fun lastLogSeq(): Long = synchronized(logsLock) { logSeq }
 
     fun snapshotConnections(): List<Connection> = synchronized(connectionsLock) {
         val store = connectionStore ?: return emptyList()
@@ -170,7 +179,7 @@ object McpState : CommandClient.Handler {
     override fun appendLogs(message: List<LogEntry>) {
         synchronized(logsLock) {
             for (entry in message) {
-                logs.addLast(entry)
+                logs.addLast(LogLine(++logSeq, entry.level, entry.message))
                 while (logs.size > MAX_LOGS) logs.removeFirst()
             }
         }
