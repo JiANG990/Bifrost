@@ -45,9 +45,12 @@ object McpState : CommandClient.Handler {
     var outbounds: List<ItemSnapshot> = emptyList()
         private set
 
-    @Volatile
-    var connected: Boolean = false
-        private set
+    /**
+     * Derived from [status] instead of a separate flag: the libbox command client can
+     * reconnect underneath us without another connected() callback, and a stale flag
+     * made /health report "connected": false while data was flowing.
+     */
+    val connected: Boolean get() = status != null
 
     private val logs = ArrayDeque<LogEntry>()
     private val logsLock = Any()
@@ -88,7 +91,6 @@ object McpState : CommandClient.Handler {
     fun stop() {
         runCatching { client?.disconnect() }
         client = null
-        connected = false
         status = null
         clashMode = ""
         groups = emptyList()
@@ -113,19 +115,13 @@ object McpState : CommandClient.Handler {
             .filter { it.isActive }
     }
 
-    override fun onConnected() {
-        connected = true
-    }
-
     override fun onDisconnected() {
-        connected = false
         // The cached libbox objects are already invalid; reading them yields garbage
         // values (negative counters) instead of a clean "not connected".
         status = null
     }
 
     override fun onConnectionError(message: String) {
-        connected = false
         status = null
     }
 
