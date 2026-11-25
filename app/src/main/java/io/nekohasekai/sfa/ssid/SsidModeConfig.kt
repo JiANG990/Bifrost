@@ -132,9 +132,18 @@ object SsidModeConfig {
      * Reads the default gateway of the Wi-Fi network. activeNetwork cannot be
      * used here: while the VPN runs it is the tun interface and has no gateway.
      */
+    @Suppress("DEPRECATION")
     private fun currentGateways(context: Context?): Pair<String?, String?> {
         val ctx = context ?: return null to null
         try {
+            // allNetworks keeps listing a Wi-Fi network for a while after it loses its
+            // link, so ask the WifiManager whether we are really associated. Without this
+            // the injected gateway survives on cellular and every lookup waits for it.
+            val wifi = ctx.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            val associated = runCatching {
+                wifi != null && wifi.isWifiEnabled && (wifi.connectionInfo?.networkId ?: -1) >= 0
+            }.getOrDefault(false)
+            if (!associated) return null to null
             val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             if (cm != null) {
                 for (network in cm.allNetworks) {

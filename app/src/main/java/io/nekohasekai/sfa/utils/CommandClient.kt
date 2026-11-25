@@ -14,6 +14,8 @@ import io.nekohasekai.libbox.StatusMessage
 import io.nekohasekai.libbox.StringIterator
 import io.nekohasekai.sfa.ktx.toList
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -98,6 +100,7 @@ open class CommandClient(
     private val access = Any()
     private var connectionEpoch = 0
     private var commandClient: io.nekohasekai.libbox.CommandClient? = null
+    private val reconnecting = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun connect() {
         val epoch: Int
@@ -192,6 +195,30 @@ open class CommandClient(
         }
     }
 
+    /**
+     * The core is restarted whenever the profile or the network changes, which drops the
+     * command connection. Without this every listener (dashboard, connection list, MCP)
+     * stays dead until the app is restarted.
+     */
+    private fun scheduleReconnect(epoch: Int) {
+        if (!reconnecting.compareAndSet(false, true)) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                var wait = 500L
+                while (scope.isActive && isActiveEpoch(epoch)) {
+                    delay(wait)
+                    if (!isActiveEpoch(epoch)) return@launch
+                    connect()
+                    delay(1_000)
+                    if (synchronized(access) { commandClient != null }) return@launch
+                    wait = (wait * 2).coerceAtMost(5_000L)
+                }
+            } finally {
+                reconnecting.set(false)
+            }
+        }
+    }
+
     private fun isActiveEpoch(epoch: Int): Boolean = synchronized(access) { epoch == connectionEpoch }
 
     private inner class ClientHandler(private val epoch: Int) : CommandClientHandler {
@@ -208,6 +235,7 @@ open class CommandClient(
                 handler.onConnectionError(message)
             }
             Log.d("CommandClient", "disconnected: $message")
+            scheduleReconnect(epoch)
         }
 
         override fun writeGroups(message: OutboundGroupIterator?) {
