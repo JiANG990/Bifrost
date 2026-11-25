@@ -72,14 +72,6 @@ jobs:
           path: sing-box
           fetch-depth: 1
 
-      - name: Pin version
-        run: |
-          cat > version.properties <<EOF
-          VERSION_CODE=$VERSION_CODE
-          VERSION_NAME=${SB_TAG#v}
-          GO_VERSION=go1.26.10
-          EOF
-
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
@@ -129,13 +121,15 @@ jobs:
         run: |
           set -euo pipefail
           TAG="ssid-$SB_TAG"
-          BUNDLE="SFA-${SB_TAG#v}-arm64-v8a.apk"
+          VER=$(grep '^VERSION_NAME=' version.properties | cut -d= -f2)
+          VCODE=$(grep '^VERSION_CODE=' version.properties | cut -d= -f2)
+          BUNDLE="Bifrost-${VER}-arm64-v8a.apk"
           APK=$(find app/build/outputs/apk/other/release -name '*arm64-v8a*.apk' | head -1)
           [ -n "$APK" ] || APK=$(find app/build/outputs/apk/other/release -name '*.apk' | head -1)
           cp "$APK" "$BUNDLE"
-          printf '{"version_code": %s}\n' "$VERSION_CODE" > SFA-version-metadata.json
+          printf '{"version_code": %s}\n' "$VCODE" > Bifrost-version-metadata.json
           {
-            echo "## SFA ${SB_TAG#v} · 按 Wi-Fi 切出站模式"
+            echo "## Bifrost ${VER} · 按 Wi-Fi 切出站模式"
             echo
             echo "- 按 SSID 自动切换出站模式（规则 / 全局 / 直连），热生效，不重建 VPN"
             echo "- 局域网组播与广播不进 tun，飞牛 / mDNS / DLNA 发现正常"
@@ -147,7 +141,7 @@ jobs:
             gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
           fi
           gh release create "$TAG" \
-            --title "SFA ${SB_TAG#v} · SSID 增强版" \
+            --title "Bifrost ${VER} · SSID 增强版" \
             --notes-file notes.md \
             --prerelease \
-            "$BUNDLE" SFA-version-metadata.json
+            "$BUNDLE" Bifrost-version-metadata.json
