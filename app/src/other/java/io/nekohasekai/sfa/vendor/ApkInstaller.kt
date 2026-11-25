@@ -53,9 +53,9 @@ object ApkInstaller {
         return getConfiguredMethod()
     }
 
-    suspend fun install(context: Context, apkFile: File, method: InstallMethod = resolveMethod()) {
+    suspend fun install(context: Context, apkFile: File, method: InstallMethod? = null) {
         stopServiceIfRunning()
-        when (method) {
+        when (method ?: resolveMethod()) {
             InstallMethod.SHIZUKU -> ShizukuInstaller.install(apkFile)
             InstallMethod.ROOT -> RootInstaller.install(apkFile)
             InstallMethod.PACKAGE_INSTALLER -> SystemPackageInstaller.install(context, apkFile)
