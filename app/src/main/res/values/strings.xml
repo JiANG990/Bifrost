@@ -787,5 +787,5 @@
     <string name="mcp_allowed_cidrs">Allowed networks</string>
     <string name="mcp_allowed_cidrs_hint">Only used when LAN access is on. One CIDR per line or comma separated, e.g. 192.168.88.0/24, 100.64.0.0/10. Empty admits any address.</string>
     <string name="mcp_allow_lan">Allow LAN access</string>
-    <string name="mcp_allow_lan_summary">Off: only 127.0.0.1 can connect. On: listens on 0.0.0.0 and admits peers allowed by the network list below</string>
+    <string name="mcp_allow_lan_summary">Off: only this device can connect. On: other devices may connect, limited to the network list below</string>
 </resources>

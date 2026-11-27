@@ -760,5 +760,5 @@
     <string name="mcp_allowed_cidrs">允许的网段</string>
     <string name="mcp_allowed_cidrs_hint">仅在“允许局域网访问”打开时生效。每行或逗号分隔，如 192.168.88.0/24、100.64.0.0/10；留空表示放行全部地址</string>
     <string name="mcp_allow_lan">允许局域网访问</string>
-    <string name="mcp_allow_lan_summary">关闭时只有本机 127.0.0.1 可连；打开后监听 0.0.0.0，并按下面的网段放行</string>
+    <string name="mcp_allow_lan_summary">关闭时只有本机可以连接；打开后允许其他设备连接，并按下面的网段放行</string>
 </resources>
