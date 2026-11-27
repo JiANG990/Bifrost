@@ -544,6 +544,7 @@ object McpTools {
             .put("connected", McpState.connected)
             .put("mcpPort", Settings.mcpServerPort)
             .put("mcpAllowLan", Settings.mcpServerAllowLan)
+            .put("mcpAllowCidrs", Settings.mcpServerAllowedCidrs)
             .put("mcpTokenSet", Settings.mcpServerToken.isNotBlank())
     }
 

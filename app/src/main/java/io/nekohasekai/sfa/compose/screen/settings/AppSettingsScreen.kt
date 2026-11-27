@@ -188,6 +188,7 @@ fun AppSettingsScreen(
     var mcpAllowLan by remember { mutableStateOf(Settings.mcpServerAllowLan) }
     var mcpPort by remember { mutableStateOf(Settings.mcpServerPort.toString()) }
     var mcpToken by remember { mutableStateOf(Settings.mcpServerToken) }
+    var mcpCidrs by remember { mutableStateOf(Settings.mcpServerAllowedCidrs) }
     var showMcpDialog by remember { mutableStateOf(false) }
 
     var cacheSize by remember { mutableStateOf(0L) }
@@ -1315,6 +1316,7 @@ fun AppSettingsScreen(
         if (showMcpDialog) {
             var portText by remember { mutableStateOf(mcpPort) }
             var tokenText by remember { mutableStateOf(mcpToken) }
+            var cidrText by remember { mutableStateOf(mcpCidrs) }
             AlertDialog(
                 onDismissRequest = { showMcpDialog = false },
                 title = { Text(stringResource(R.string.mcp_server_title)) },
@@ -1334,6 +1336,15 @@ fun AppSettingsScreen(
                             label = { Text(stringResource(R.string.mcp_token)) },
                             singleLine = true,
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = cidrText,
+                            onValueChange = { cidrText = it },
+                            label = { Text(stringResource(R.string.mcp_allowed_cidrs)) },
+                            supportingText = { Text(stringResource(R.string.mcp_allowed_cidrs_hint)) },
+                            minLines = 3,
+                            maxLines = 6,
+                        )
                     }
                 },
                 confirmButton = {
@@ -1342,9 +1353,11 @@ fun AppSettingsScreen(
                         if (port != null && port in 1024..65535) {
                             mcpPort = portText
                             mcpToken = tokenText
+                            mcpCidrs = cidrText
                             scope.launch {
                                 Settings.mcpServerPort = port
                                 Settings.mcpServerToken = tokenText
+                                Settings.mcpServerAllowedCidrs = cidrText
                                 withContext(Dispatchers.Main) { McpServer.restart() }
                             }
                         }

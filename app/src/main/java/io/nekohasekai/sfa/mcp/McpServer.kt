@@ -88,7 +88,8 @@ object McpServer {
         }
         val port = Settings.mcpServerPort.takeIf { it in 1024..65535 } ?: DEFAULT_PORT
         val socket = try {
-            val host = if (Settings.mcpServerAllowLan) "0.0.0.0" else "127.0.0.1"
+            val hasAllowList = Settings.mcpServerAllowedCidrs.isNotBlank()
+            val host = if (Settings.mcpServerAllowLan || hasAllowList) "0.0.0.0" else "127.0.0.1"
             ServerSocket(port, 16, InetAddress.getByName(host))
         } catch (e: Exception) {
             Log.e(TAG, "Cannot bind 127.0.0.1:$port", e)
@@ -121,6 +122,56 @@ object McpServer {
         if (Settings.mcpServerEnabled) start()
     }
 
+    /**
+     * Loopback is always allowed. Anything else needs [Settings.mcpServerAllowLan]; when an
+     * allow-list is configured it replaces the blanket "any LAN peer" rule.
+     */
+    private fun isAllowedPeer(address: InetAddress?): Boolean {
+        if (address == null) return false
+        if (address.isLoopbackAddress) return true
+        if (!Settings.mcpServerAllowLan && Settings.mcpServerAllowedCidrs.isBlank()) return false
+        val raw = Settings.mcpServerAllowedCidrs
+        if (raw.isBlank()) return true
+        return parseCidrs(raw).any { it.matches(address) }
+    }
+
+    private class Cidr(private val network: ByteArray, private val prefix: Int) {
+        fun matches(address: InetAddress): Boolean {
+            val bytes = address.address
+            if (bytes.size != network.size) return false
+            var bits = prefix
+            var index = 0
+            while (bits >= 8) {
+                if (bytes[index] != network[index]) return false
+                index++
+                bits -= 8
+            }
+            if (bits > 0) {
+                val mask = (0xFF shl (8 - bits)) and 0xFF
+                if ((bytes[index].toInt() and mask) != (network[index].toInt() and mask)) return false
+            }
+            return true
+        }
+    }
+
+    /** Accepts comma/newline separated literal IPs or CIDRs; host names are ignored. */
+    private fun parseCidrs(raw: String): List<Cidr> = raw
+        .split(',', '\n', ';', ' ')
+        .mapNotNull { token ->
+            val entry = token.trim()
+            if (entry.isEmpty()) return@mapNotNull null
+            val parts = entry.split('/')
+            val address = parts[0]
+            val literal = address.matches(Regex("^[0-9.]+$")) ||
+                address.matches(Regex("^[0-9a-fA-F:]+$"))
+            if (!literal) return@mapNotNull null
+            runCatching {
+                val network = InetAddress.getByName(address).address
+                val prefix = if (parts.size > 1) parts[1].toInt() else network.size * 8
+                if (prefix in 0..network.size * 8) Cidr(network, prefix) else null
+            }.getOrNull()
+        }
+
     /** Turns away a connection when every slot is taken, without reading the request. */
     private fun rejectBusy(client: Socket) {
         runCatching {
@@ -145,6 +196,11 @@ object McpServer {
             } catch (e: Exception) {
                 if (!socket.isClosed) Log.w(TAG, "accept failed", e)
                 break
+            }
+            if (!isAllowedPeer(client.inetAddress)) {
+                Log.w(TAG, "rejected MCP client ${client.inetAddress}")
+                runCatching { client.close() }
+                continue
             }
             if (connectionSlots.incrementAndGet() > MAX_CONNECTIONS) {
                 connectionSlots.decrementAndGet()

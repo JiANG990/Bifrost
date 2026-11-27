@@ -782,6 +782,8 @@
     <string name="mcp_endpoint_summary_no_token">Port %1$s · no token</string>
     <string name="mcp_port">Port</string>
     <string name="mcp_token">Access token (leave empty to disable auth)</string>
+    <string name="mcp_allowed_cidrs">Allowed networks</string>
+    <string name="mcp_allowed_cidrs_hint">One CIDR per line or comma separated, e.g. 192.168.88.0/24, 100.64.0.0/10. Empty allows any LAN address.</string>
     <string name="mcp_allow_lan">Allow LAN access</string>
     <string name="mcp_allow_lan_summary">Listen on 0.0.0.0 so other devices on this network can connect</string>
 </resources>
