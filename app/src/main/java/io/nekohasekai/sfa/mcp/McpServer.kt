@@ -5,6 +5,7 @@ import io.nekohasekai.sfa.database.Settings
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -13,7 +14,7 @@ import java.net.SocketTimeoutException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Loopback-only MCP (JSON-RPC 2.0) endpoint speaking the Streamable HTTP transport.
@@ -21,13 +22,15 @@ import java.util.concurrent.atomic.AtomicLong
  * Bind address is always 127.0.0.1 unless the user opts into LAN access; the bearer
  * token adds a second layer for clients that share the phone.
  *
- * Transport features implemented per the MCP Streamable HTTP spec:
- * - POST /mcp with JSON bodies (Content-Length or chunked), JSON or SSE responses
- * - GET /mcp opening a server-to-client SSE stream (keep-alive pings)
- * - DELETE /mcp terminating the session
- * - Mcp-Session-Id issue/echo/validate, Mcp-Protocol-Version validation
- * - proper HTTP status codes (401/404/405/406/413/415) instead of blanket 200
- * - HTTP keep-alive so a client can reuse one connection
+ * Transport behaviour:
+ * - POST /mcp with JSON bodies (Content-Length or chunked); JSON, or a single SSE
+ *   event when the client asks for text/event-stream
+ * - GET /mcp opens a server-to-client SSE stream with periodic pings
+ * - DELETE /mcp ends the session
+ * - Mcp-Session-Id issued on initialize, validated on later requests
+ * - Mcp-Protocol-Version validated when present
+ * - real HTTP status codes (401/404/405/406/413/415/503) instead of a blanket 200
+ * - HTTP keep-alive; SSE streams live on their own pool so they cannot starve POSTs
  */
 object McpServer {
 
@@ -36,10 +39,11 @@ object McpServer {
 
     private const val MAX_BODY = 1_048_576
     private const val MAX_LINE = 8_192
-    private const val REQUEST_TIMEOUT_MS = 5_000L
-    private const val KEEPALIVE_TIMEOUT_MS = 60_000
+    private const val IDLE_TIMEOUT_MS = 60_000
     private const val SSE_PING_MS = 15_000L
     private const val MAX_SESSIONS = 32
+    private const val MAX_SSE_STREAMS = 4
+    private const val SESSION_TTL_MS = 30 * 60 * 1000L
 
     private val SUPPORTED_VERSIONS = listOf("2025-06-18", "2025-03-26", "2024-11-05")
 
@@ -52,13 +56,17 @@ object McpServer {
         Thread(r, "mcp-worker").apply { isDaemon = true }
     }
 
+    private val sseWorkers = Executors.newCachedThreadPool { r ->
+        Thread(r, "mcp-sse").apply { isDaemon = true }
+    }
+
+    private val sseActive = AtomicInteger()
+
     /** Live client sockets, so stop() can abort in-flight requests. */
     private val clients: MutableSet<Socket> = ConcurrentHashMap.newKeySet()
 
     /** Issued session ids with their last-use timestamp. */
     private val sessions: MutableMap<String, Long> = ConcurrentHashMap()
-
-    private val requestSeq = AtomicLong()
 
     val isRunning: Boolean get() = serverSocket?.isClosed == false && acceptThread?.isAlive == true
 
@@ -117,35 +125,45 @@ object McpServer {
 
     private fun serve(client: Socket) {
         clients.add(client)
+        var handedOff = false
         try {
-            client.use { socket ->
+            run {
+                val socket = client
                 val input = BufferedInputStream(socket.getInputStream())
                 val output = BufferedOutputStream(socket.getOutputStream())
                 while (isRunning) {
-                    socket.soTimeout = REQUEST_TIMEOUT_MS
+                    socket.soTimeout = IDLE_TIMEOUT_MS
                     val request = try {
                         readRequest(input) ?: return
                     } catch (e: SocketTimeoutException) {
+                        return
+                    } catch (e: BodyTooLarge) {
+                        runCatching {
+                            writeResponse(output, 413, "\"payload too large\"", "application/json", null, false)
+                        }
                         return
                     } catch (e: Exception) {
                         Log.w(TAG, "bad request", e)
                         return
                     }
                     when {
-                        request.method == "GET" && isMcpPath(request.path) -> {
-                            serveSse(socket, output, request)
+                        request.method == "GET" && request.path == "/mcp" -> {
+                            handedOff = dispatchSse(socket, output, request)
                             return
                         }
-                        request.method == "DELETE" && isMcpPath(request.path) -> {
-                            val sid = request.headers["mcp-session-id"]
-                            if (sid != null) sessions.remove(sid)
-                            writeResponse(output, 204, null, null, sid, false)
+                        request.method == "DELETE" && request.path == "/mcp" -> {
+                            handleDelete(output, request)
                             return
                         }
                         request.method == "POST" -> {
-                            val keepAlive = handlePost(output, request, socket)
-                            if (!keepAlive) return
-                            socket.soTimeout = KEEPALIVE_TIMEOUT_MS
+                            if (!handlePost(output, request)) return
+                        }
+                        request.method == "GET" && request.path.startsWith("/health") -> {
+                            writeResponse(
+                                output, 200, McpTools.health(), "application/json",
+                                request.sessionId, request.wantsKeepAlive,
+                            )
+                            if (!request.wantsKeepAlive) return
                         }
                         else -> {
                             writeResponse(
@@ -160,122 +178,161 @@ object McpServer {
         } catch (e: Exception) {
             Log.w(TAG, "request failed", e)
         } finally {
-            clients.remove(client)
+            if (!handedOff) {
+                clients.remove(client)
+                runCatching { client.close() }
+            }
         }
     }
 
     /** Returns true when the connection may be reused for another request. */
-    private fun handlePost(output: BufferedOutputStream, request: HttpRequest, socket: Socket): Boolean {
-        val path = request.path
-        if (path.startsWith("/health")) {
-            writeResponse(output, 200, McpTools.health(), "application/json", request.sessionId, request.wantsKeepAlive)
-            return request.wantsKeepAlive
-        }
-        if (!isMcpPath(path)) {
-            writeResponse(output, 404, "\"not found\"", "application/json", request.sessionId, request.wantsKeepAlive)
-            return request.wantsKeepAlive
-        }
+    private fun handlePost(output: BufferedOutputStream, request: HttpRequest): Boolean {
+        val keepAlive = request.wantsKeepAlive
         if (!authorized(request)) {
             writeResponse(
                 output, 401, jsonRpcError(null, -32001, "unauthorized"), "application/json",
-                request.sessionId, request.wantsKeepAlive,
-                mapOf("WWW-Authenticate" to "Bearer realm=\"bifrost-mcp\""),
+                null, keepAlive, mapOf("WWW-Authenticate" to "Bearer realm=\"bifrost-mcp\""),
             )
-            return request.wantsKeepAlive
+            return keepAlive
         }
         val contentType = request.headers["content-type"]?.lowercase().orEmpty()
-        if (contentType.isNotEmpty() && !contentType.startsWith("application/json")) {
-            writeResponse(output, 415, "\"unsupported media type\"", "application/json", request.sessionId, request.wantsKeepAlive)
-            return request.wantsKeepAlive
+        if (contentType.isNotEmpty() && !isJsonContentType(contentType)) {
+            // Legacy clients (python urllib, curl --data) often send form content types;
+            // the body is still JSON, so accept anything that is not obviously binary.
+            if (contentType.contains("multipart/")) {
+                writeResponse(output, 415, "\"unsupported media type\"", "application/json", null, keepAlive)
+                return keepAlive
+            }
         }
         if (!acceptsJson(request)) {
-            writeResponse(output, 406, "\"not acceptable\"", "application/json", request.sessionId, request.wantsKeepAlive)
-            return request.wantsKeepAlive
+            writeResponse(output, 406, "\"not acceptable\"", "application/json", null, keepAlive)
+            return keepAlive
         }
         val version = request.protocolVersion
         if (version != null && version !in SUPPORTED_VERSIONS) {
             writeResponse(
                 output, 400, jsonRpcError(null, -32600, "unsupported protocol version $version"),
-                "application/json", request.sessionId, request.wantsKeepAlive,
+                "application/json", null, keepAlive,
             )
-            return request.wantsKeepAlive
+            return keepAlive
         }
         val sid = request.sessionId
-        if (sid != null) {
-            // Unknown session: the client must start a new one with initialize.
-            if (!sessions.containsKey(sid)) {
-                writeResponse(output, 404, "\"session not found\"", "application/json", null, request.wantsKeepAlive)
-                return request.wantsKeepAlive
-            }
-            sessions[sid] = System.currentTimeMillis()
+        if (sid != null && !isLiveSession(sid)) {
+            // Unknown/expired session: the client must start over with initialize.
+            writeResponse(output, 404, "\"session not found\"", "application/json", null, keepAlive)
+            return keepAlive
         }
+        if (sid != null) sessions[sid] = System.currentTimeMillis()
 
         val body = request.body
-        val isInitialize = runCatching {
-            JSONObject(body).optString("method") == "initialize"
-        }.getOrDefault(false)
+        val method = runCatching { JSONObject(body).optString("method") }.getOrDefault("")
         val isNotification = runCatching {
             val obj = JSONObject(body)
             !obj.has("id") && obj.has("method")
         }.getOrDefault(false)
 
         val responseBody = McpTools.handle(body)
-
-        // initialize (or any request without a session) yields a fresh session id
-        var issued: String? = null
-        var responseSession = sid
-        if (isInitialize || responseSession == null) {
-            val fresh = newSession()
-            issued = fresh
-            responseSession = fresh
-        }
+        val issued = if (method == "initialize") newSession() else null
+        val responseSession = issued ?: sid
 
         if (isNotification) {
-            writeResponse(output, 202, null, null, responseSession, request.wantsKeepAlive, extra = null, issued = issued)
-            return request.wantsKeepAlive
+            writeResponse(output, 202, null, null, responseSession, keepAlive, issued = issued)
+            return keepAlive
         }
-
         val wantsSse = request.headers["accept"]?.lowercase()?.contains("text/event-stream") == true
         if (wantsSse) {
             writeResponse(
                 output, 200, "event: message\ndata: $responseBody\n\n", "text/event-stream",
-                responseSession, request.wantsKeepAlive, issued = issued,
+                responseSession, keepAlive, issued = issued,
             )
         } else {
             writeResponse(
                 output, 200, responseBody, "application/json",
-                responseSession, request.wantsKeepAlive, issued = issued,
+                responseSession, keepAlive, issued = issued,
             )
         }
-        return request.wantsKeepAlive
+        return keepAlive
     }
 
-    /** Keeps a server-to-client SSE stream open with periodic comments. */
-    private fun serveSse(socket: Socket, output: BufferedOutputStream, request: HttpRequest) {
+    private fun handleDelete(output: BufferedOutputStream, request: HttpRequest) {
         if (!authorized(request)) {
             writeResponse(
                 output, 401, jsonRpcError(null, -32001, "unauthorized"), "application/json",
-                request.sessionId, false,
-                mapOf("WWW-Authenticate" to "Bearer realm=\"bifrost-mcp\""),
+                null, false, mapOf("WWW-Authenticate" to "Bearer realm=\"bifrost-mcp\""),
             )
             return
         }
+        val sid = request.sessionId
+        if (sid == null) {
+            writeResponse(output, 400, "\"missing session id\"", "application/json", null, false)
+            return
+        }
+        if (sessions.remove(sid) == null) {
+            writeResponse(output, 404, "\"session not found\"", "application/json", null, false)
+            return
+        }
+        writeResponse(output, 204, null, null, null, false)
+    }
+
+    /** Runs an SSE stream on its own pool so it cannot occupy a request worker. */
+    private fun dispatchSse(socket: Socket, output: BufferedOutputStream, request: HttpRequest): Boolean {
+        if (!authorized(request)) {
+            writeResponse(
+                output, 401, jsonRpcError(null, -32001, "unauthorized"), "application/json",
+                null, false, mapOf("WWW-Authenticate" to "Bearer realm=\"bifrost-mcp\""),
+            )
+            return false
+        }
+        val accept = request.headers["accept"]?.lowercase().orEmpty()
+        if (accept.isNotEmpty() && !accept.contains("text/event-stream") && !accept.contains("*/*")) {
+            writeResponse(output, 406, "\"not acceptable\"", "application/json", null, false)
+            return false
+        }
+        val sid = request.sessionId
+        if (sid != null && !isLiveSession(sid)) {
+            writeResponse(output, 404, "\"session not found\"", "application/json", null, false)
+            return false
+        }
+        if (sseActive.incrementAndGet() > MAX_SSE_STREAMS) {
+            sseActive.decrementAndGet()
+            writeResponse(output, 503, "\"too many streams\"", "application/json", null, false)
+            return false
+        }
+        sseWorkers.execute {
+            try {
+                serveSse(socket, output, sid)
+            } finally {
+                sseActive.decrementAndGet()
+                clients.remove(socket)
+                runCatching { socket.close() }
+            }
+        }
+        return true
+    }
+
+    private fun serveSse(socket: Socket, output: BufferedOutputStream, sid: String?) {
         val header = buildString {
             append("HTTP/1.1 200 OK\r\n")
             append("Content-Type: text/event-stream\r\n")
             append("Cache-Control: no-cache\r\n")
-            append("Connection: keep-alive\r\n")
-            request.sessionId?.let { append("Mcp-Session-Id: ").append(it).append("\r\n") }
+            append("Transfer-Encoding: chunked\r\n")
+            if (sid != null) append("Mcp-Session-Id: ").append(sid).append("\r\n")
             append("\r\n")
         }
-        output.write(header.toByteArray(Charsets.US_ASCII))
-        output.flush()
+        runCatching {
+            output.write(header.toByteArray(Charsets.US_ASCII))
+            output.flush()
+        }.onFailure { return }
         socket.soTimeout = 0
         while (isRunning && !socket.isClosed) {
-            runCatching {
-                output.write(": ping\n\n".toByteArray(Charsets.US_ASCII))
+            val ok = runCatching {
+                val payload = ": ping\n\n".toByteArray(Charsets.US_ASCII)
+                output.write("${Integer.toHexString(payload.size)}\r\n".toByteArray(Charsets.US_ASCII))
+                output.write(payload)
+                output.write("\r\n".toByteArray(Charsets.US_ASCII))
                 output.flush()
-            }.onFailure { return }
+            }.isSuccess
+            if (!ok) return
             try {
                 Thread.sleep(SSE_PING_MS)
             } catch (e: InterruptedException) {
@@ -284,7 +341,10 @@ object McpServer {
         }
     }
 
-    private fun isMcpPath(path: String) = path.startsWith("/mcp") || path == "/"
+    private fun isJsonContentType(value: String): Boolean {
+        val media = value.substringBefore(';').trim()
+        return media == "application/json" || media.endsWith("+json")
+    }
 
     private fun authorized(request: HttpRequest): Boolean {
         val expected = Settings.mcpServerToken
@@ -298,13 +358,23 @@ object McpServer {
         return accept.contains("*/*") || accept.contains("application/json") || accept.contains("text/event-stream")
     }
 
+    private fun isLiveSession(id: String): Boolean {
+        val last = sessions[id] ?: return false
+        if (System.currentTimeMillis() - last > SESSION_TTL_MS) {
+            sessions.remove(id)
+            return false
+        }
+        return true
+    }
+
     private fun newSession(): String {
+        val now = System.currentTimeMillis()
+        sessions.entries.removeAll { now - it.value > SESSION_TTL_MS }
         if (sessions.size >= MAX_SESSIONS) {
-            val oldest = sessions.entries.minByOrNull { it.value }?.key
-            if (oldest != null) sessions.remove(oldest)
+            sessions.entries.minByOrNull { it.value }?.let { sessions.remove(it.key) }
         }
         val id = UUID.randomUUID().toString().replace("-", "")
-        sessions[id] = System.currentTimeMillis()
+        sessions[id] = now
         return id
     }
 
@@ -322,6 +392,8 @@ object McpServer {
                 return !connection.contains("close")
             }
     }
+
+    private class BodyTooLarge : IOException("request body too large")
 
     private fun readRequest(input: BufferedInputStream): HttpRequest? {
         val requestLine = readLine(input) ?: return null
@@ -347,21 +419,23 @@ object McpServer {
             while (true) {
                 val sizeLine = readLine(input) ?: break
                 val size = sizeLine.trim().substringBefore(';').toIntOrNull(16)
-                    ?: throw java.io.IOException("invalid chunk size")
+                    ?: throw IOException("invalid chunk size")
                 if (size == 0) {
                     readLine(input) // trailing CRLF
                     break
                 }
+                if (size < 0 || size > MAX_BODY || builder.length + size > MAX_BODY) throw BodyTooLarge()
                 builder.append(readExactly(input, size))
                 readLine(input) // CRLF after chunk data
-                if (builder.length > MAX_BODY) throw java.io.IOException("request body too large")
             }
             return builder.toString()
         }
         val length = headers["content-length"]?.toIntOrNull() ?: 0
-        if (length > MAX_BODY) throw java.io.IOException("request body too large")
-        if (length <= 0) return ""
-        return readExactly(input, length)
+        if (length < 0 || length > MAX_BODY) throw BodyTooLarge()
+        if (length == 0) return ""
+        val body = readExactly(input, length)
+        if (body.length < length) throw IOException("truncated request body")
+        return body
     }
 
     private fun readExactly(input: InputStream, length: Int): String {
@@ -376,21 +450,19 @@ object McpServer {
     }
 
     private fun readLine(input: BufferedInputStream): String? {
-        val deadline = System.currentTimeMillis() + REQUEST_TIMEOUT_MS
         val builder = StringBuilder()
         while (true) {
-            if (System.currentTimeMillis() > deadline) throw java.io.IOException("request timeout")
             val b = input.read()
             if (b < 0) return if (builder.isEmpty()) null else builder.toString()
             if (b == '\n'.code) break
             if (b != '\r'.code) builder.append(b.toChar())
-            if (builder.length > MAX_LINE) throw java.io.IOException("header line too long")
+            if (builder.length > MAX_LINE) throw IOException("header line too long")
         }
         return builder.toString()
     }
 
     /** Tokens are 32 hex chars; generated once and persisted when the server starts. */
-    private fun newToken(): String = java.util.UUID.randomUUID().toString().replace("-", "")
+    private fun newToken(): String = UUID.randomUUID().toString().replace("-", "")
 
     private fun writeResponse(
         output: BufferedOutputStream,
@@ -409,7 +481,9 @@ object McpServer {
             if (contentType != null) append("Content-Type: ").append(contentType).append("\r\n")
             if (session != null) append("Mcp-Session-Id: ").append(session).append("\r\n")
             extra?.forEach { (k, v) -> append(k).append(": ").append(v).append("\r\n") }
-            if (body != null) append("Content-Length: ").append(bytes.size).append("\r\n")
+            // A bodyless response other than 204 still needs a zero length so that a
+            // keep-alive client can tell where the message ends.
+            if (body != null || status != 204) append("Content-Length: ").append(bytes.size).append("\r\n")
             append("Connection: ").append(if (keepAlive) "keep-alive" else "close").append("\r\n\r\n")
         }
         output.write(header.toByteArray(Charsets.US_ASCII))
@@ -428,6 +502,7 @@ object McpServer {
         406 -> "Not Acceptable"
         413 -> "Payload Too Large"
         415 -> "Unsupported Media Type"
+        503 -> "Service Unavailable"
         else -> "Error"
     }
 
