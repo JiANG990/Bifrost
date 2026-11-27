@@ -296,7 +296,12 @@ object McpServer {
             writeResponse(output, 202, null, null, responseSession, keepAlive, issued = issued)
             return keepAlive
         }
-        val wantsSse = request.headers["accept"]?.lowercase()?.contains("text/event-stream") == true
+        // Most clients send "application/json, text/event-stream" but only parse JSON,
+        // so prefer a plain JSON body unless the client accepts nothing else.
+        val acceptHeader = request.headers["accept"]?.lowercase().orEmpty()
+        val wantsSse = acceptHeader.contains("text/event-stream") &&
+            !acceptHeader.contains("application/json") &&
+            !acceptHeader.contains("*/*")
         if (wantsSse) {
             writeResponse(
                 output, 200, "event: message\ndata: $responseBody\n\n", "text/event-stream",
