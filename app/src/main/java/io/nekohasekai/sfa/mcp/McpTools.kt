@@ -104,6 +104,7 @@ object McpTools {
         "runtime_config" -> runtimeConfig(args)
         "update_profile" -> updateProfile(args)
         "device" -> device()
+        "health" -> JSONObject(health())
         "dns_query" -> dnsQuery(args)
         "probe" -> probe(args)
         "ssid_mode" -> ssidMode(args)
@@ -662,6 +663,7 @@ object McpTools {
 
     private fun toolList(): JSONArray = JSONArray()
         .put(tool("status", "Running state of the VPN core: connected, core version, live traffic, clash mode, selected profile.", schema()))
+        .put(tool("health", "Cheap liveness probe: ok flag, server name, core version and connected state.", schema()))
         .put(tool("outbounds", "All outbound groups (selectors, url-test) with their items and last measured delay.", schema()))
         .put(
             tool(

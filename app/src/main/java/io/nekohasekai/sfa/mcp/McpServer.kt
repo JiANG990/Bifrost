@@ -270,14 +270,16 @@ object McpServer {
                             handleDelete(output, request)
                             return
                         }
-                        request.method == "GET" && request.path == "/health" -> {
-                            writeResponse(
-                                output, 200, McpTools.health(), "application/json",
-                                request.sessionId, request.wantsKeepAlive,
-                            )
-                            if (!request.wantsKeepAlive) return
-                        }
-                        request.method == "POST" && request.path == "/health" -> {
+                        request.path == "/health" &&
+                            (request.method == "GET" || request.method == "POST") -> {
+                            if (!authorized(request)) {
+                                writeResponse(
+                                    output, 401, jsonRpcError(null, -32001, "unauthorized"),
+                                    "application/json", null, false,
+                                    mapOf("WWW-Authenticate" to "Bearer realm=\"bifrost-mcp\""),
+                                )
+                                return
+                            }
                             writeResponse(
                                 output, 200, McpTools.health(), "application/json",
                                 request.sessionId, request.wantsKeepAlive,
