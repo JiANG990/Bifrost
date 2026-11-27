@@ -19,7 +19,10 @@ import java.util.Locale
  */
 object McpTools {
 
-    private const val PROTOCOL_VERSION = "2024-11-05"
+    private const val PROTOCOL_VERSION = "2025-06-18"
+
+    /** Versions we can actually speak, newest first. */
+    private val SUPPORTED_VERSIONS = listOf("2025-06-18", "2025-03-26", "2024-11-05")
     private const val SERVER_NAME = "Bifrost"
     private const val SERVER_VERSION = "1.0.0"
 
@@ -41,7 +44,7 @@ object McpTools {
         val params = request.optJSONObject("params") ?: JSONObject()
         return when (method) {
             "initialize" -> result(id, JSONObject()
-                .put("protocolVersion", PROTOCOL_VERSION)
+                .put("protocolVersion", negotiateVersion(params.optString("protocolVersion")))
                 .put("capabilities", JSONObject().put("tools", JSONObject()))
                 .put("serverInfo", JSONObject().put("name", SERVER_NAME).put("version", SERVER_VERSION)))
             "notifications/initialized" -> "{}"
@@ -51,6 +54,10 @@ object McpTools {
             else -> McpServer.jsonRpcError(id, -32601, "method not found: $method")
         }
     }
+
+    /** Echo a version we speak; otherwise advertise our newest one. */
+    private fun negotiateVersion(requested: String): String =
+        if (requested in SUPPORTED_VERSIONS) requested else PROTOCOL_VERSION
 
     private fun result(id: Any?, payload: JSONObject): String = JSONObject()
         .put("jsonrpc", "2.0")

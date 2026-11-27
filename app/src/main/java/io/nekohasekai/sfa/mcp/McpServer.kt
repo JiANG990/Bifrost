@@ -388,6 +388,11 @@ object McpServer {
             output.flush()
         }.onFailure { return }
         socket.soTimeout = SSE_POLL_MS
+        // Flush one comment frame right away: some clients treat a silent stream as a dead one.
+        if (!writeChunk(output, ": ping\n\n")) {
+            runCatching { socket.close() }
+            return
+        }
         var lastPing = System.currentTimeMillis()
         while (isRunning && !socket.isClosed) {
             // A half-closed peer does not break writes, so poll the read side for EOF.
