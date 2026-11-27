@@ -66,6 +66,12 @@ object SsidModeConfig {
             if (directSsids.isNotEmpty() && Settings.ssidModeDnsEnabled) {
                 applyLanDns(root, context)
             }
+            // On a "direct" Wi-Fi the local subnet must not be routed into the tun:
+            // the core would source those packets from the tun address and the peers
+            // on the LAN cannot answer it. Let the kernel send them directly instead.
+            if (directSsids.isNotEmpty() && isCurrentSsidDirect(context, directSsids)) {
+                applyLanExclude(root, context)
+            }
             root.toString()
         } catch (e: Throwable) {
             lastError = e.message ?: e.javaClass.simpleName
@@ -126,6 +132,68 @@ object SsidModeConfig {
                 .put("server_port", 53)
                 .put("detour", "direct"),
         )
+    }
+
+    /** True when the Wi-Fi we are associated with is one of the direct-mode SSIDs. */
+    @Suppress("DEPRECATION")
+    private fun isCurrentSsidDirect(context: Context?, directSsids: List<String>): Boolean {
+        val ctx = context ?: return false
+        return try {
+            val wifi = ctx.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return false
+            val ssid = wifi.connectionInfo?.ssid?.trim('"') ?: return false
+            directSsids.any { it == ssid }
+        } catch (e: Throwable) {
+            Log.w(TAG, "ssid check failed: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Collects the prefixes of the Wi-Fi link addresses (IPv4 and non-link-local IPv6)
+     * so the tun can leave them alone.
+     */
+    private fun currentWifiCidrs(context: Context?): List<String> {
+        val ctx = context ?: return emptyList()
+        return try {
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return emptyList()
+            val out = LinkedHashSet<String>()
+            for (network in cm.allNetworks) {
+                val caps = cm.getNetworkCapabilities(network) ?: continue
+                if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+                val lp = cm.getLinkProperties(network) ?: continue
+                for (linkAddress in lp.linkAddresses) {
+                    val address = linkAddress.address ?: continue
+                    if (address.isLoopbackAddress || address.isLinkLocalAddress) continue
+                    val host = address.hostAddress?.substringBefore('%') ?: continue
+                    out.add("$host/${linkAddress.prefixLength}")
+                }
+            }
+            out.toList()
+        } catch (e: Throwable) {
+            Log.w(TAG, "wifi prefix lookup failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /** Adds the current LAN prefixes to every tun inbound's route_exclude_address. */
+    private fun applyLanExclude(root: JSONObject, context: Context?) {
+        val cidrs = currentWifiCidrs(context)
+        if (cidrs.isEmpty()) return
+        val inbounds = root.optJSONArray("inbounds") ?: return
+        for (i in 0 until inbounds.length()) {
+            val inbound = inbounds.optJSONObject(i) ?: continue
+            if (inbound.optString("type") != "tun") continue
+            val merged = LinkedHashSet<String>()
+            inbound.optJSONArray("route_exclude_address")?.let { array ->
+                for (j in 0 until array.length()) merged.add(array.optString(j))
+            }
+            merged.addAll(cidrs)
+            val array = JSONArray()
+            merged.forEach { array.put(it) }
+            inbound.put("route_exclude_address", array)
+        }
     }
 
     /**
