@@ -66,6 +66,7 @@ fun SsidModeScreen(navController: NavController) {
 
     var enabled by remember { mutableStateOf(Settings.ssidModeEnabled) }
     var dnsEnabled by remember { mutableStateOf(Settings.ssidModeDnsEnabled) }
+    var lanExcludeEnabled by remember { mutableStateOf(Settings.ssidModeLanExcludeEnabled) }
     var rules by remember { mutableStateOf(parseRules(Settings.ssidModeList)) }
     var ssid by remember { mutableStateOf("") }
     var mode by remember { mutableStateOf("direct") }
@@ -75,6 +76,7 @@ fun SsidModeScreen(navController: NavController) {
     fun persist() {
         Settings.ssidModeEnabled = enabled
         Settings.ssidModeDnsEnabled = dnsEnabled
+        Settings.ssidModeLanExcludeEnabled = lanExcludeEnabled
         Settings.ssidModeList = rules.entries.joinToString("\n") { "${it.key}=${it.value}" }
         error = reloadIfRunning()
     }
@@ -131,6 +133,28 @@ fun SsidModeScreen(navController: NavController) {
                         checked = dnsEnabled,
                         onCheckedChange = {
                             dnsEnabled = it
+                            persist()
+                        },
+                    )
+                },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            )
+        }
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        ) {
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.ssid_mode_lan_exclude)) },
+                supportingContent = { Text(stringResource(R.string.ssid_mode_lan_exclude_desc)) },
+                trailingContent = {
+                    Switch(
+                        checked = lanExcludeEnabled,
+                        onCheckedChange = {
+                            lanExcludeEnabled = it
                             persist()
                         },
                     )

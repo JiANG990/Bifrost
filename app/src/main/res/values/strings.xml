@@ -762,6 +762,8 @@
     <string name="endpoint_browser_profile_unavailable">Browser authentication is unavailable on this device.</string>
     <string name="ssid_mode_title">Per-Wi-Fi outbound mode</string>
     <string name="ssid_mode_enabled">Enable</string>
+    <string name="ssid_mode_lan_exclude">Bypass LAN on direct Wi-Fi</string>
+    <string name="ssid_mode_lan_exclude_desc">When the current Wi-Fi is in direct mode, keep its subnet out of the tun so LAN traffic skips the proxy.</string>
     <string name="ssid_mode_dns_enabled">Auto switch gateway DNS</string>
     <string name="ssid_mode_dns_desc">On direct Wi-Fi, point all DNS queries at the network gateway, because the gateway also splits DNS itself.</string>
     <string name="ssid_mode_desc">Overrides the outbound mode only while connected to the listed Wi-Fi networks. Other networks keep the profile rules.</string>

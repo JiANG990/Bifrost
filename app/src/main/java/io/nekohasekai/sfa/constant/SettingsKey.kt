@@ -28,6 +28,7 @@ object SettingsKey {
     const val SSID_MODE_ENABLED = "ssid_mode_enabled"
     const val SSID_MODE_LIST = "ssid_mode_list"
     const val SSID_MODE_DNS_ENABLED = "ssid_mode_dns_enabled"
+    const val SSID_MODE_LAN_EXCLUDE_ENABLED = "ssid_mode_lan_exclude_enabled"
     const val SYSTEM_PROXY_ENABLED = "system_proxy_enabled"
 
     const val MCP_SERVER_ENABLED = "mcp_server_enabled"

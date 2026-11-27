@@ -69,7 +69,10 @@ object SsidModeConfig {
             // On a "direct" Wi-Fi the local subnet must not be routed into the tun:
             // the core would source those packets from the tun address and the peers
             // on the LAN cannot answer it. Let the kernel send them directly instead.
-            if (directSsids.isNotEmpty() && isCurrentSsidDirect(context, directSsids)) {
+            if (Settings.ssidModeLanExcludeEnabled &&
+                directSsids.isNotEmpty() &&
+                isCurrentSsidDirect(context, directSsids)
+            ) {
                 applyLanExclude(root, context)
             }
             root.toString()

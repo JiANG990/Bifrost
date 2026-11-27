@@ -101,6 +101,7 @@ object Settings {
     var ssidModeEnabled by dataStore.boolean(SettingsKey.SSID_MODE_ENABLED) { false }
     var ssidModeList by dataStore.string(SettingsKey.SSID_MODE_LIST) { "" }
     var ssidModeDnsEnabled by dataStore.boolean(SettingsKey.SSID_MODE_DNS_ENABLED) { true }
+    var ssidModeLanExcludeEnabled by dataStore.boolean(SettingsKey.SSID_MODE_LAN_EXCLUDE_ENABLED) { true }
 
     var mcpServerEnabled by dataStore.boolean(SettingsKey.MCP_SERVER_ENABLED) { false }
     var mcpServerPort by dataStore.int(SettingsKey.MCP_SERVER_PORT) { 18080 }
