@@ -5,6 +5,7 @@ import io.nekohasekai.sfa.database.Settings
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.InetAddress
@@ -39,7 +40,10 @@ object McpServer {
 
     private const val MAX_BODY = 1_048_576
     private const val MAX_LINE = 8_192
+    private const val MAX_HEADERS = 64
     private const val IDLE_TIMEOUT_MS = 60_000
+    private const val REQUEST_TIMEOUT_MS = 10_000
+    private const val SSE_POLL_MS = 1_000
     private const val SSE_PING_MS = 15_000L
     private const val MAX_SESSIONS = 32
     private const val MAX_SSE_STREAMS = 4
@@ -52,7 +56,9 @@ object McpServer {
 
     private var acceptThread: Thread? = null
 
-    private val workers = Executors.newFixedThreadPool(4) { r ->
+    // Cached pools: a keep-alive connection parks one thread while it waits, so a small
+    // fixed pool would starve as soon as a handful of clients stayed connected.
+    private val workers = Executors.newCachedThreadPool { r ->
         Thread(r, "mcp-worker").apply { isDaemon = true }
     }
 
@@ -132,9 +138,18 @@ object McpServer {
                 val input = BufferedInputStream(socket.getInputStream())
                 val output = BufferedOutputStream(socket.getOutputStream())
                 while (isRunning) {
+                    // Idle wait for the next request; a parked keep-alive connection is
+                    // allowed to sit here for a minute.
                     socket.soTimeout = IDLE_TIMEOUT_MS
+                    val requestLine = try {
+                        readLine(input) ?: return
+                    } catch (e: SocketTimeoutException) {
+                        return
+                    }
+                    // Once a request started, everything about it is bounded in time.
+                    socket.soTimeout = REQUEST_TIMEOUT_MS
                     val request = try {
-                        readRequest(input) ?: return
+                        readRequest(input, requestLine) ?: return
                     } catch (e: SocketTimeoutException) {
                         return
                     } catch (e: BodyTooLarge) {
@@ -148,27 +163,33 @@ object McpServer {
                     }
                     when {
                         request.method == "GET" && request.path == "/mcp" -> {
-                            handedOff = dispatchSse(socket, output, request)
+                            handedOff = dispatchSse(socket, input, output, request)
                             return
                         }
                         request.method == "DELETE" && request.path == "/mcp" -> {
                             handleDelete(output, request)
                             return
                         }
-                        request.method == "POST" -> {
-                            if (!handlePost(output, request)) return
-                        }
-                        request.method == "GET" && request.path.startsWith("/health") -> {
+                        request.method == "GET" && request.path == "/health" -> {
                             writeResponse(
                                 output, 200, McpTools.health(), "application/json",
                                 request.sessionId, request.wantsKeepAlive,
                             )
                             if (!request.wantsKeepAlive) return
                         }
+                        request.method == "POST" && request.path == "/health" -> {
+                            writeResponse(
+                                output, 200, McpTools.health(), "application/json",
+                                request.sessionId, request.wantsKeepAlive,
+                            )
+                            if (!request.wantsKeepAlive) return
+                        }
+                        request.method == "POST" && request.path == "/mcp" -> {
+                            if (!handlePost(output, request)) return
+                        }
                         else -> {
                             writeResponse(
-                                output, 405, "\"method not allowed\"", "application/json", null, false,
-                                mapOf("Allow" to "GET, POST, DELETE"),
+                                output, 404, "\"not found\"", "application/json", null, false,
                             )
                             return
                         }
@@ -196,13 +217,9 @@ object McpServer {
             return keepAlive
         }
         val contentType = request.headers["content-type"]?.lowercase().orEmpty()
-        if (contentType.isNotEmpty() && !isJsonContentType(contentType)) {
-            // Legacy clients (python urllib, curl --data) often send form content types;
-            // the body is still JSON, so accept anything that is not obviously binary.
-            if (contentType.contains("multipart/")) {
-                writeResponse(output, 415, "\"unsupported media type\"", "application/json", null, keepAlive)
-                return keepAlive
-            }
+        if (contentType.contains("multipart/")) {
+            writeResponse(output, 415, "\"unsupported media type\"", "application/json", null, keepAlive)
+            return keepAlive
         }
         if (!acceptsJson(request)) {
             writeResponse(output, 406, "\"not acceptable\"", "application/json", null, keepAlive)
@@ -232,6 +249,7 @@ object McpServer {
         }.getOrDefault(false)
 
         val responseBody = McpTools.handle(body)
+        if (method == "initialize" && sid != null) sessions.remove(sid)
         val issued = if (method == "initialize") newSession() else null
         val responseSession = issued ?: sid
 
@@ -275,7 +293,12 @@ object McpServer {
     }
 
     /** Runs an SSE stream on its own pool so it cannot occupy a request worker. */
-    private fun dispatchSse(socket: Socket, output: BufferedOutputStream, request: HttpRequest): Boolean {
+    private fun dispatchSse(
+        socket: Socket,
+        input: BufferedInputStream,
+        output: BufferedOutputStream,
+        request: HttpRequest,
+    ): Boolean {
         if (!authorized(request)) {
             writeResponse(
                 output, 401, jsonRpcError(null, -32001, "unauthorized"), "application/json",
@@ -293,6 +316,8 @@ object McpServer {
             writeResponse(output, 404, "\"session not found\"", "application/json", null, false)
             return false
         }
+        // A client that only holds the stream open is still alive: slide the TTL.
+        if (sid != null) sessions[sid] = System.currentTimeMillis()
         if (sseActive.incrementAndGet() > MAX_SSE_STREAMS) {
             sseActive.decrementAndGet()
             writeResponse(output, 503, "\"too many streams\"", "application/json", null, false)
@@ -300,7 +325,7 @@ object McpServer {
         }
         sseWorkers.execute {
             try {
-                serveSse(socket, output, sid)
+                serveSse(socket, input, output, sid)
             } finally {
                 sseActive.decrementAndGet()
                 clients.remove(socket)
@@ -310,7 +335,7 @@ object McpServer {
         return true
     }
 
-    private fun serveSse(socket: Socket, output: BufferedOutputStream, sid: String?) {
+    private fun serveSse(socket: Socket, input: BufferedInputStream, output: BufferedOutputStream, sid: String?) {
         val header = buildString {
             append("HTTP/1.1 200 OK\r\n")
             append("Content-Type: text/event-stream\r\n")
@@ -323,28 +348,37 @@ object McpServer {
             output.write(header.toByteArray(Charsets.US_ASCII))
             output.flush()
         }.onFailure { return }
-        socket.soTimeout = 0
+        socket.soTimeout = SSE_POLL_MS
+        var lastPing = System.currentTimeMillis()
         while (isRunning && !socket.isClosed) {
-            val ok = runCatching {
-                val payload = ": ping\n\n".toByteArray(Charsets.US_ASCII)
-                output.write("${Integer.toHexString(payload.size)}\r\n".toByteArray(Charsets.US_ASCII))
-                output.write(payload)
-                output.write("\r\n".toByteArray(Charsets.US_ASCII))
-                output.flush()
-            }.isSuccess
-            if (!ok) return
+            // A half-closed peer does not break writes, so poll the read side for EOF.
             try {
-                Thread.sleep(SSE_PING_MS)
-            } catch (e: InterruptedException) {
-                return
+                if (input.read() < 0) break
+            } catch (e: SocketTimeoutException) {
+                // still connected, nothing to read
+            } catch (e: Exception) {
+                break
+            }
+            if (System.currentTimeMillis() - lastPing >= SSE_PING_MS) {
+                val ok = writeChunk(output, ": ping\n\n")
+                if (!ok) break
+                lastPing = System.currentTimeMillis()
             }
         }
+        writeChunk(output, "")
     }
 
-    private fun isJsonContentType(value: String): Boolean {
-        val media = value.substringBefore(';').trim()
-        return media == "application/json" || media.endsWith("+json")
-    }
+    private fun writeChunk(output: BufferedOutputStream, payload: String): Boolean = runCatching {
+        val body = payload.toByteArray(Charsets.US_ASCII)
+        if (body.isEmpty()) {
+            output.write("0\r\n\r\n".toByteArray(Charsets.US_ASCII))
+        } else {
+            output.write("${Integer.toHexString(body.size)}\r\n".toByteArray(Charsets.US_ASCII))
+            output.write(body)
+            output.write("\r\n".toByteArray(Charsets.US_ASCII))
+        }
+        output.flush()
+    }.isSuccess
 
     private fun authorized(request: HttpRequest): Boolean {
         val expected = Settings.mcpServerToken
@@ -395,14 +429,14 @@ object McpServer {
 
     private class BodyTooLarge : IOException("request body too large")
 
-    private fun readRequest(input: BufferedInputStream): HttpRequest? {
-        val requestLine = readLine(input) ?: return null
+    private fun readRequest(input: BufferedInputStream, requestLine: String): HttpRequest? {
         val parts = requestLine.split(" ")
         if (parts.size < 2) return null
         val headers = mutableMapOf<String, String>()
         while (true) {
             val line = readLine(input) ?: break
             if (line.isEmpty()) break
+            if (headers.size >= MAX_HEADERS) throw IOException("too many headers")
             val index = line.indexOf(':')
             if (index > 0) {
                 headers[line.substring(0, index).trim().lowercase()] = line.substring(index + 1).trim()
@@ -415,38 +449,41 @@ object McpServer {
     private fun readBody(input: BufferedInputStream, headers: Map<String, String>): String {
         val chunked = headers["transfer-encoding"]?.lowercase()?.contains("chunked") == true
         if (chunked) {
-            val builder = StringBuilder()
+            val out = ByteArrayOutputStream()
             while (true) {
                 val sizeLine = readLine(input) ?: break
                 val size = sizeLine.trim().substringBefore(';').toIntOrNull(16)
                     ?: throw IOException("invalid chunk size")
                 if (size == 0) {
-                    readLine(input) // trailing CRLF
+                    // Consume trailers until the blank line that ends the body.
+                    while (true) {
+                        val trailer = readLine(input) ?: break
+                        if (trailer.isEmpty()) break
+                    }
                     break
                 }
-                if (size < 0 || size > MAX_BODY || builder.length + size > MAX_BODY) throw BodyTooLarge()
-                builder.append(readExactly(input, size))
+                if (size < 0 || size > MAX_BODY || out.size() + size > MAX_BODY) throw BodyTooLarge()
+                out.write(readExactly(input, size))
                 readLine(input) // CRLF after chunk data
             }
-            return builder.toString()
+            return String(out.toByteArray(), Charsets.UTF_8)
         }
         val length = headers["content-length"]?.toIntOrNull() ?: 0
         if (length < 0 || length > MAX_BODY) throw BodyTooLarge()
         if (length == 0) return ""
-        val body = readExactly(input, length)
-        if (body.length < length) throw IOException("truncated request body")
-        return body
+        return String(readExactly(input, length), Charsets.UTF_8)
     }
 
-    private fun readExactly(input: InputStream, length: Int): String {
+    /** Reads exactly [length] bytes; a short read means the peer truncated the request. */
+    private fun readExactly(input: InputStream, length: Int): ByteArray {
         val buffer = ByteArray(length)
         var read = 0
         while (read < length) {
             val n = input.read(buffer, read, length - read)
-            if (n < 0) break
+            if (n < 0) throw IOException("truncated request body")
             read += n
         }
-        return String(buffer, 0, read, Charsets.UTF_8)
+        return buffer
     }
 
     private fun readLine(input: BufferedInputStream): String? {
