@@ -131,7 +131,22 @@ object McpServer {
         if (!Settings.mcpServerAllowLan) return false
         val raw = Settings.mcpServerAllowedCidrs
         if (raw.isBlank()) return true
-        return parseCidrs(raw).any { it.matches(address) }
+        return allowList(raw).any { it.matches(address) }
+    }
+
+    /** The list is edited rarely and checked on every accept, so keep the parse around. */
+    @Volatile
+    private var cachedCidrSource: String? = null
+
+    @Volatile
+    private var cachedCidrs: List<Cidr> = emptyList()
+
+    private fun allowList(raw: String): List<Cidr> {
+        if (raw == cachedCidrSource) return cachedCidrs
+        val parsed = parseCidrs(raw)
+        cachedCidrs = parsed
+        cachedCidrSource = raw
+        return parsed
     }
 
     private class Cidr(private val network: ByteArray, private val prefix: Int) {
@@ -161,8 +176,8 @@ object McpServer {
             if (entry.isEmpty()) return@mapNotNull null
             val parts = entry.split('/')
             val address = parts[0]
-            val literal = address.matches(Regex("^[0-9.]+$")) ||
-                address.matches(Regex("^[0-9a-fA-F:]+$"))
+            val literal = address.matches(Regex("^(\\d{1,3}\\.){3}\\d{1,3}$")) ||
+                (address.contains(':') && address.matches(Regex("^[0-9a-fA-F:.]+$")))
             if (!literal) return@mapNotNull null
             runCatching {
                 val network = InetAddress.getByName(address).address
@@ -295,8 +310,9 @@ object McpServer {
             if (!handedOff) {
                 clients.remove(client)
                 runCatching { client.close() }
+                // An SSE stream keeps the socket alive, so it keeps its slot too.
+                connectionSlots.decrementAndGet()
             }
-            connectionSlots.decrementAndGet()
         }
     }
 
@@ -427,6 +443,7 @@ object McpServer {
                 serveSse(socket, input, output, sid)
             } finally {
                 sseActive.decrementAndGet()
+                connectionSlots.decrementAndGet()
                 clients.remove(socket)
                 runCatching { socket.close() }
             }
