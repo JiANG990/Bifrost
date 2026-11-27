@@ -785,7 +785,7 @@
     <string name="mcp_port">Port</string>
     <string name="mcp_token">Access token (leave empty to disable auth)</string>
     <string name="mcp_allowed_cidrs">Allowed networks</string>
-    <string name="mcp_allowed_cidrs_hint">One CIDR per line or comma separated, e.g. 192.168.88.0/24, 100.64.0.0/10. Empty allows any LAN address.</string>
+    <string name="mcp_allowed_cidrs_hint">Only used when LAN access is on. One CIDR per line or comma separated, e.g. 192.168.88.0/24, 100.64.0.0/10. Empty admits any address.</string>
     <string name="mcp_allow_lan">Allow LAN access</string>
-    <string name="mcp_allow_lan_summary">Listen on 0.0.0.0 so other devices on this network can connect</string>
+    <string name="mcp_allow_lan_summary">Off: only 127.0.0.1 can connect. On: listens on 0.0.0.0 and admits peers allowed by the network list below</string>
 </resources>

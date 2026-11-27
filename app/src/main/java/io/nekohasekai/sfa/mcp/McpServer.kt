@@ -88,8 +88,7 @@ object McpServer {
         }
         val port = Settings.mcpServerPort.takeIf { it in 1024..65535 } ?: DEFAULT_PORT
         val socket = try {
-            val hasAllowList = Settings.mcpServerAllowedCidrs.isNotBlank()
-            val host = if (Settings.mcpServerAllowLan || hasAllowList) "0.0.0.0" else "127.0.0.1"
+            val host = if (Settings.mcpServerAllowLan) "0.0.0.0" else "127.0.0.1"
             ServerSocket(port, 16, InetAddress.getByName(host))
         } catch (e: Exception) {
             Log.e(TAG, "Cannot bind 127.0.0.1:$port", e)
@@ -123,13 +122,13 @@ object McpServer {
     }
 
     /**
-     * Loopback is always allowed. Anything else needs [Settings.mcpServerAllowLan]; when an
-     * allow-list is configured it replaces the blanket "any LAN peer" rule.
+     * Loopback is always allowed. [Settings.mcpServerAllowLan] is the only gate for external
+     * peers; when an allow-list is configured it further narrows that to matching networks.
      */
     private fun isAllowedPeer(address: InetAddress?): Boolean {
         if (address == null) return false
         if (address.isLoopbackAddress) return true
-        if (!Settings.mcpServerAllowLan && Settings.mcpServerAllowedCidrs.isBlank()) return false
+        if (!Settings.mcpServerAllowLan) return false
         val raw = Settings.mcpServerAllowedCidrs
         if (raw.isBlank()) return true
         return parseCidrs(raw).any { it.matches(address) }
