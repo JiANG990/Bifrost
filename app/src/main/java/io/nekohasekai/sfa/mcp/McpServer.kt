@@ -47,6 +47,7 @@ object McpServer {
     private const val SSE_PING_MS = 15_000L
     private const val MAX_SESSIONS = 32
     private const val MAX_SSE_STREAMS = 4
+    private const val MAX_CONNECTIONS = 64
     private const val SESSION_TTL_MS = 30 * 60 * 1000L
 
     private val SUPPORTED_VERSIONS = listOf("2025-06-18", "2025-03-26", "2024-11-05")
@@ -67,6 +68,9 @@ object McpServer {
     }
 
     private val sseActive = AtomicInteger()
+
+    /** Hard cap on live connections; the cached pool would otherwise grow without bound. */
+    private val connectionSlots = AtomicInteger()
 
     /** Live client sockets, so stop() can abort in-flight requests. */
     private val clients: MutableSet<Socket> = ConcurrentHashMap.newKeySet()
@@ -117,6 +121,23 @@ object McpServer {
         if (Settings.mcpServerEnabled) start()
     }
 
+    /** Turns away a connection when every slot is taken, without reading the request. */
+    private fun rejectBusy(client: Socket) {
+        runCatching {
+            client.getOutputStream().apply {
+                write(
+                    ("HTTP/1.1 503 Service Unavailable\r\n" +
+                        "Content-Type: application/json\r\n" +
+                        "Content-Length: 22\r\n" +
+                        "Connection: close\r\n\r\n" +
+                        "\"too many connections\"").toByteArray(Charsets.UTF_8),
+                )
+                flush()
+            }
+            client.close()
+        }
+    }
+
     private fun acceptLoop(socket: ServerSocket) {
         while (!socket.isClosed) {
             val client = try {
@@ -125,7 +146,16 @@ object McpServer {
                 if (!socket.isClosed) Log.w(TAG, "accept failed", e)
                 break
             }
-            runCatching { workers.execute { serve(client) } }
+            if (connectionSlots.incrementAndGet() > MAX_CONNECTIONS) {
+                connectionSlots.decrementAndGet()
+                rejectBusy(client)
+                continue
+            }
+            val accepted = runCatching { workers.execute { serve(client) } }.isSuccess
+            if (!accepted) {
+                connectionSlots.decrementAndGet()
+                runCatching { client.close() }
+            }
         }
     }
 
@@ -187,6 +217,14 @@ object McpServer {
                         request.method == "POST" && request.path == "/mcp" -> {
                             if (!handlePost(output, request)) return
                         }
+                        request.path == "/mcp" || request.path == "/health" -> {
+                            val allow = if (request.path == "/mcp") "GET, POST, DELETE" else "GET, POST"
+                            writeResponse(
+                                output, 405, "\"method not allowed\"", "application/json",
+                                null, request.wantsKeepAlive, mapOf("Allow" to allow),
+                            )
+                            if (!request.wantsKeepAlive) return
+                        }
                         else -> {
                             writeResponse(
                                 output, 404, "\"not found\"", "application/json", null, false,
@@ -203,6 +241,7 @@ object McpServer {
                 clients.remove(client)
                 runCatching { client.close() }
             }
+            connectionSlots.decrementAndGet()
         }
     }
 
@@ -249,8 +288,8 @@ object McpServer {
         }.getOrDefault(false)
 
         val responseBody = McpTools.handle(body)
-        if (method == "initialize" && sid != null) sessions.remove(sid)
         val issued = if (method == "initialize") newSession() else null
+        if (method == "initialize" && sid != null) sessions.remove(sid)
         val responseSession = issued ?: sid
 
         if (isNotification) {
@@ -432,9 +471,11 @@ object McpServer {
     private fun readRequest(input: BufferedInputStream, requestLine: String): HttpRequest? {
         val parts = requestLine.split(" ")
         if (parts.size < 2) return null
+        // One deadline for the whole request: reading bytes one at a time must not extend it.
+        val deadline = System.currentTimeMillis() + REQUEST_TIMEOUT_MS
         val headers = mutableMapOf<String, String>()
         while (true) {
-            val line = readLine(input) ?: break
+            val line = readLine(input, deadline) ?: break
             if (line.isEmpty()) break
             if (headers.size >= MAX_HEADERS) throw IOException("too many headers")
             val index = line.indexOf(':')
@@ -442,43 +483,44 @@ object McpServer {
                 headers[line.substring(0, index).trim().lowercase()] = line.substring(index + 1).trim()
             }
         }
-        val body = readBody(input, headers)
+        val body = readBody(input, headers, deadline)
         return HttpRequest(parts[0].uppercase(), parts[1].substringBefore('?'), headers, body)
     }
 
-    private fun readBody(input: BufferedInputStream, headers: Map<String, String>): String {
+    private fun readBody(input: BufferedInputStream, headers: Map<String, String>, deadline: Long): String {
         val chunked = headers["transfer-encoding"]?.lowercase()?.contains("chunked") == true
         if (chunked) {
             val out = ByteArrayOutputStream()
             while (true) {
-                val sizeLine = readLine(input) ?: break
+                val sizeLine = readLine(input, deadline) ?: break
                 val size = sizeLine.trim().substringBefore(';').toIntOrNull(16)
                     ?: throw IOException("invalid chunk size")
                 if (size == 0) {
                     // Consume trailers until the blank line that ends the body.
                     while (true) {
-                        val trailer = readLine(input) ?: break
+                        val trailer = readLine(input, deadline) ?: break
                         if (trailer.isEmpty()) break
                     }
                     break
                 }
                 if (size < 0 || size > MAX_BODY || out.size() + size > MAX_BODY) throw BodyTooLarge()
-                out.write(readExactly(input, size))
-                readLine(input) // CRLF after chunk data
+                out.write(readExactly(input, size, deadline))
+                readLine(input, deadline) // CRLF after chunk data
             }
             return String(out.toByteArray(), Charsets.UTF_8)
         }
         val length = headers["content-length"]?.toIntOrNull() ?: 0
         if (length < 0 || length > MAX_BODY) throw BodyTooLarge()
         if (length == 0) return ""
-        return String(readExactly(input, length), Charsets.UTF_8)
+        return String(readExactly(input, length, deadline), Charsets.UTF_8)
     }
 
     /** Reads exactly [length] bytes; a short read means the peer truncated the request. */
-    private fun readExactly(input: InputStream, length: Int): ByteArray {
+    private fun readExactly(input: InputStream, length: Int, deadline: Long): ByteArray {
         val buffer = ByteArray(length)
         var read = 0
         while (read < length) {
+            checkDeadline(deadline)
             val n = input.read(buffer, read, length - read)
             if (n < 0) throw IOException("truncated request body")
             read += n
@@ -486,9 +528,16 @@ object McpServer {
         return buffer
     }
 
-    private fun readLine(input: BufferedInputStream): String? {
+    private fun checkDeadline(deadline: Long) {
+        if (deadline != Long.MAX_VALUE && System.currentTimeMillis() > deadline) {
+            throw SocketTimeoutException("request deadline exceeded")
+        }
+    }
+
+    private fun readLine(input: BufferedInputStream, deadline: Long = Long.MAX_VALUE): String? {
         val builder = StringBuilder()
         while (true) {
+            checkDeadline(deadline)
             val b = input.read()
             if (b < 0) return if (builder.isEmpty()) null else builder.toString()
             if (b == '\n'.code) break
