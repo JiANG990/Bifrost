@@ -155,6 +155,20 @@ object SsidModeConfig {
      * Collects the prefixes of the Wi-Fi link addresses (IPv4 and non-link-local IPv6)
      * so the tun can leave them alone.
      */
+    /** Masks the host bits so the prefix names a network address, never a client address. */
+    private fun networkCidr(address: java.net.InetAddress, prefix: Int): String? {
+        val bytes = address.address
+        val max = bytes.size * 8
+        if (prefix !in 0..max) return null
+        val masked = bytes.copyOf()
+        for (bit in prefix until max) {
+            val index = bit / 8
+            masked[index] = (masked[index].toInt() and (1 shl (7 - bit % 8)).inv()).toByte()
+        }
+        val host = java.net.InetAddress.getByAddress(masked).hostAddress ?: return null
+        return "$host/$prefix"
+    }
+
     private fun currentWifiCidrs(context: Context?): List<String> {
         val ctx = context ?: return emptyList()
         return try {
@@ -169,8 +183,7 @@ object SsidModeConfig {
                 for (linkAddress in lp.linkAddresses) {
                     val address = linkAddress.address ?: continue
                     if (address.isLoopbackAddress || address.isLinkLocalAddress) continue
-                    val host = address.hostAddress?.substringBefore('%') ?: continue
-                    out.add("$host/${linkAddress.prefixLength}")
+                    networkCidr(address, linkAddress.prefixLength)?.let { out.add(it) }
                 }
             }
             out.toList()
