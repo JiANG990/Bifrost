@@ -3,6 +3,8 @@
 > Bifrost（彩虹桥）—— 基于 [sing-box](https://github.com/SagerNet/sing-box) 开发的 Android 客户端，专注于「按 Wi-Fi 自动切换出站模式与 DNS」。
 > 在家直连、出门走代理，不用每天手动点开关。
 
+> **本项目由 AI 编写与维护。** 代码、文档、提交记录与发布产物均由 AI 代理生成，人类只负责提需求、评审和真机验收。提 issue / PR 前请知悉：回复与改动同样可能来自 AI。
+
 [![Build](https://github.com/JiANG990/Bifrost/actions/workflows/ssid-build.yaml/badge.svg)](https://github.com/JiANG990/Bifrost/actions/workflows/ssid-build.yaml)
 
 ## 为什么
